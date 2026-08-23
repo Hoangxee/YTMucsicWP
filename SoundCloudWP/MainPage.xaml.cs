@@ -20,7 +20,7 @@ namespace SoundCloudWP
         {
             InitializeComponent();
             LoadSavedItems();
-            SearchBrowser.Navigate(new Uri("https://soundcloud.com/search/sounds"));
+            SearchBrowser.NavigateToString("<html><body style='background:#101010;color:#ddd;font-family:Segoe UI;padding:18px'><h2 style='color:#ff5500'>Search public SoundCloud tracks</h2><p>Enter an artist or track above. Results are provided by Bing because the current SoundCloud website cannot run in the Windows Phone 8.1 browser.</p><p>You can also paste a public SoundCloud URL below.</p></body></html>");
         }
 
         private void Search_Click(object sender, RoutedEventArgs e)
@@ -28,8 +28,9 @@ namespace SoundCloudWP
             var query = (SearchBox.Text ?? "").Trim();
             if (query.Length == 0) return;
             ShowSearch();
-            StatusText.Text = "Loading SoundCloud search…";
-            SearchBrowser.Navigate(new Uri("https://soundcloud.com/search/sounds?q=" + Uri.EscapeDataString(query)));
+            StatusText.Text = "Searching public SoundCloud links…";
+            var webQuery = "site:soundcloud.com/ " + query;
+            SearchBrowser.Navigate(new Uri("https://www.bing.com/search?q=" + Uri.EscapeDataString(webQuery)));
         }
 
         private void SearchBox_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -39,12 +40,16 @@ namespace SoundCloudWP
 
         private void SearchBrowser_NavigationStarting(WebView sender, WebViewNavigationStartingEventArgs args)
         {
-            if (IsPlayableSoundCloudUrl(args.Uri)) TrackUrlBox.Text = CleanUrl(args.Uri.AbsoluteUri);
+            if (!IsPlayableSoundCloudUrl(args.Uri)) return;
+            args.Cancel = true;
+            TrackUrlBox.Text = CleanUrl(args.Uri.AbsoluteUri);
+            StatusText.Text = "SoundCloud link selected. Loading player…";
+            Play_Click(sender, new RoutedEventArgs());
         }
 
         private void SearchBrowser_NavigationCompleted(WebView sender, WebViewNavigationCompletedEventArgs args)
         {
-            StatusText.Text = args.IsSuccess ? "Open a track/playlist, or paste its URL below." : "SoundCloud web failed on WP8.1: " + args.WebErrorStatus;
+            StatusText.Text = args.IsSuccess ? "Tap a SoundCloud result to play it, or paste a URL below." : "Search page failed on WP8.1: " + args.WebErrorStatus;
         }
 
         private async void Play_Click(object sender, RoutedEventArgs e)
