@@ -227,7 +227,7 @@ namespace YTMusicWP
             catch { }
         }
 
-        private void Current_Resuming(object sender, object e)
+        private async void Current_Resuming(object sender, object e)
         {
             try
             {
@@ -246,9 +246,9 @@ namespace YTMusicWP
                 BackgroundMediaPlayer.MessageReceivedFromBackground += BackgroundMediaPlayer_MessageReceivedFromBackground;
                 _appMediaPlayer.CurrentStateChanged -= BackgroundMediaPlayer_CurrentStateChanged;
                 _appMediaPlayer.CurrentStateChanged += BackgroundMediaPlayer_CurrentStateChanged;
-                if (_showVideoSurface) ResumeSuspendedVideo();
-                else SyncBackgroundPlayer();
                 RestorePlaybackUiState();
+                if (_showVideoSurface) await ResumeSuspendedVideoAsync();
+                else SyncBackgroundPlayer();
                 TimerCallback(null);
             }
             catch { }

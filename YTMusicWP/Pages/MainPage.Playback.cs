@@ -587,6 +587,8 @@ namespace YTMusicWP
                 FullscreenVideo.Source = null;
                 try { _appMediaPlayer.Pause(); } catch { }
                 try { BackgroundMediaPlayer.SendMessageToBackground(new ValueSet { { "StopPlaybackMessage", "" } }); } catch { }
+                try { BackgroundMediaPlayer.Shutdown(); } catch { }
+                _appMediaPlayer = null;
             }
             catch { }
 
@@ -695,12 +697,20 @@ namespace YTMusicWP
             catch { }
         }
 
-        private void ResumeSuspendedVideo()
+        private async System.Threading.Tasks.Task ResumeSuspendedVideoAsync()
         {
             if (!_showVideoSurface || !_videoWasPlayingBeforeSuspend) return;
             try
             {
                 MediaElement player = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+                if (player.Source == null && currentTrack != null && !currentTrack.VideoId.StartsWith("LOCAL:"))
+                {
+                    string videoUrl = await InnerTubeClient.ResolveStreamUrlAsync(currentTrack.VideoId, true) ?? "";
+                    if (string.IsNullOrEmpty(videoUrl)) return;
+                    _pendingVideoStartPosition = _videoPositionBeforeSuspend;
+                    player.Source = new Uri(videoUrl, UriKind.Absolute);
+                    return;
+                }
                 if (player.Source != null)
                 {
                     player.Position = _videoPositionBeforeSuspend;
@@ -810,7 +820,6 @@ namespace YTMusicWP
 
                 if (currentTrack != null && VideoModeToggle.IsOn && !currentTrack.VideoId.StartsWith("LOCAL:"))
                 {
-                    if (ForegroundVideo.Source == null) _showVideoSurface = false;
                     VideoSurfaceToggleBtn.Visibility = Visibility.Visible;
                     VideoFullscreenBtn.Visibility = ForegroundVideo.Source != null ? Visibility.Visible : Visibility.Collapsed;
                     VideoSurfaceToggleBtn.Content = _showVideoSurface ? "IMAGE" : "VIDEO";

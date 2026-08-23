@@ -49,6 +49,7 @@ namespace AudioPlayerTask
             _systemControls.ButtonPressed += SystemControls_ButtonPressed;
             _systemControls.IsPlayEnabled = true;
             _systemControls.IsPauseEnabled = true;
+            _systemControls.IsStopEnabled = true;
             _systemControls.IsNextEnabled = true;
             _systemControls.IsPreviousEnabled = true;
 
@@ -933,7 +934,25 @@ namespace AudioPlayerTask
             switch (args.Button)
             {
                 case SystemMediaTransportControlsButton.Play: try { if (_mediaPlayer.CurrentState == MediaPlayerState.Closed) StartPlaybackAsync(); else _mediaPlayer.Play(); } catch { StartPlaybackAsync(); } break;
-                case SystemMediaTransportControlsButton.Pause: try { _mediaPlayer.Pause(); } catch { } break;
+                case SystemMediaTransportControlsButton.Pause:
+                    try
+                    {
+                        _mediaPlayer.Pause();
+                        _systemControls.PlaybackStatus = MediaPlaybackStatus.Paused;
+                    }
+                    catch { }
+                    break;
+                case SystemMediaTransportControlsButton.Stop:
+                    try
+                    {
+                        StopCrossfadeMonitor();
+                        _mediaPlayer.Pause();
+                        _systemControls.PlaybackStatus = MediaPlaybackStatus.Stopped;
+                        _trackList.Clear();
+                        _currentTrackIndex = -1;
+                    }
+                    catch { }
+                    break;
                 case SystemMediaTransportControlsButton.Next: MoveNext(); break;
                 case SystemMediaTransportControlsButton.Previous: MovePrevious(); break;
             }
