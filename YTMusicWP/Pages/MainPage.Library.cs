@@ -31,7 +31,7 @@ namespace YTMusicWP
             _libraryFilter = btn.Tag as string ?? "all";
 
             // Reset all chips to inactive
-            var chips = new[] { LibChipAll, LibChipPlaylists, LibChipArtists, LibChipDownloads, LibChipRecent };
+            var chips = new[] { LibChipAll, LibChipPlaylists, LibChipAlbums, LibChipArtists, LibChipDownloads, LibChipRecent };
             foreach (var chip in chips)
             {
                 chip.Background = _chipInactiveBrush;
@@ -123,6 +123,24 @@ namespace YTMusicWP
             }
 
             // Subscriptions (artists)
+            if (showAll || _libraryFilter == "albums")
+            {
+                foreach (var album in _youtubeUserAlbums)
+                {
+                    _libraryItems.Add(new LibraryItem
+                    {
+                        Title = album.Title,
+                        Subtitle = string.IsNullOrEmpty(album.Artist) ? "Album" : "Album • " + album.Artist,
+                        ThumbnailUrl = album.ThumbnailUrl,
+                        IconGlyph = null,
+                        IsCircle = false,
+                        ItemType = "album",
+                        Tag = album
+                    });
+                }
+            }
+
+            // Subscriptions (artists)
             if (showAll || _libraryFilter == "artists")
             {
                 foreach (var sub in _youtubeSubscriptions)
@@ -160,7 +178,7 @@ namespace YTMusicWP
                     if (favoriteTracks.Count > 0 && !string.IsNullOrEmpty(favoriteTracks[0].ThumbnailUrl))
                     {
                         PlaylistDetailsCoverBrush.ImageSource = new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri(GetSquareThumbnail(favoriteTracks[0].ThumbnailUrl), UriKind.Absolute)) { DecodePixelWidth = 220 };
-                        PlaylistDetailsCoverRect.Visibility = Visibility.Visible;
+                        PlaylistDetailsCoverRect.Visibility = Visibility.Collapsed;
                     }
                     else
                     {
@@ -182,7 +200,7 @@ namespace YTMusicWP
                         if (pl.Tracks != null && pl.Tracks.Count > 0 && !string.IsNullOrEmpty(pl.Tracks[0].ThumbnailUrl))
                         {
                             PlaylistDetailsCoverBrush.ImageSource = new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri(GetSquareThumbnail(pl.Tracks[0].ThumbnailUrl), UriKind.Absolute)) { DecodePixelWidth = 220 };
-                            PlaylistDetailsCoverRect.Visibility = Visibility.Visible;
+                            PlaylistDetailsCoverRect.Visibility = Visibility.Collapsed;
                         }
                         else
                         {
@@ -223,6 +241,12 @@ namespace YTMusicWP
                         OpenYouTubePlaylist(ytpl.PlaylistId, ytpl.Title, ytpl.ThumbnailUrl);
                     break;
 
+                case "album":
+                    var album = item.Tag as YouTubeAlbumInfo;
+                    if (album != null && !string.IsNullOrEmpty(album.BrowseId))
+                        OpenYouTubePlaylist(album.BrowseId, album.Title, album.ThumbnailUrl);
+                    break;
+
                 case "artist":
                     var sub = item.Tag as YouTubeSubscription;
                     if (sub != null)
@@ -240,7 +264,7 @@ namespace YTMusicWP
             if (favoriteTracks.Count > 0 && !string.IsNullOrEmpty(favoriteTracks[0].ThumbnailUrl))
             {
                 PlaylistDetailsCoverBrush.ImageSource = new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri(GetSquareThumbnail(favoriteTracks[0].ThumbnailUrl), UriKind.Absolute)) { DecodePixelWidth = 220 };
-                PlaylistDetailsCoverRect.Visibility = Visibility.Visible;
+                PlaylistDetailsCoverRect.Visibility = Visibility.Collapsed;
             }
             else
             {
@@ -263,7 +287,7 @@ namespace YTMusicWP
             if (pl.Tracks != null && pl.Tracks.Count > 0 && !string.IsNullOrEmpty(pl.Tracks[0].ThumbnailUrl))
             {
                 PlaylistDetailsCoverBrush.ImageSource = new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri(GetSquareThumbnail(pl.Tracks[0].ThumbnailUrl), UriKind.Absolute)) { DecodePixelWidth = 220 };
-                PlaylistDetailsCoverRect.Visibility = Visibility.Visible;
+                PlaylistDetailsCoverRect.Visibility = Visibility.Collapsed;
             }
             else
             {
@@ -427,7 +451,7 @@ namespace YTMusicWP
                 if (_currentViewingPlaylist.Tracks != null && _currentViewingPlaylist.Tracks.Count > 0 && !string.IsNullOrEmpty(_currentViewingPlaylist.Tracks[0].ThumbnailUrl))
                 {
                     PlaylistDetailsCoverBrush.ImageSource = new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri(GetSquareThumbnail(_currentViewingPlaylist.Tracks[0].ThumbnailUrl), UriKind.Absolute)) { DecodePixelWidth = 220 };
-                    PlaylistDetailsCoverRect.Visibility = Visibility.Visible;
+                    PlaylistDetailsCoverRect.Visibility = Visibility.Collapsed;
                 }
                 else
                 {

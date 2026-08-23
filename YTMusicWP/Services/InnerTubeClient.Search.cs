@@ -164,6 +164,134 @@ namespace YTMusicWP
             return new SearchResult { Tracks = results, ContinuationToken = continuationToken };
         }
 
+        public static async Task<SearchResult> SearchYouTubeWithContinuationAsync(string query, int maxResults = 20, string filter = null)
+        {
+            var results = new List<YouTubeTrack>();
+            string continuation = null;
+            try
+            {
+                string vd = await GetVisitorDataAsync();
+                var body = new JObject { ["context"] = BuildWebContext(vd), ["query"] = query };
+                if (filter == "videos" || filter == "songs") body["params"] = "EgIQAQ%3D%3D";
+                else if (filter == "artists") body["params"] = "EgIQAg%3D%3D";
+                else if (filter == "playlists") body["params"] = "EgIQAw%3D%3D";
+
+                var data = await PostInnerTubeAsync(
+                    "https://www.youtube.com/youtubei/v1/search?prettyPrint=false", body, false);
+                ParseYouTubeSearchResponse(data, results, maxResults);
+                continuation = FindYouTubeSearchContinuation(data);
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[YouTube Search] " + ex.Message); }
+            return new SearchResult { Tracks = results, ContinuationToken = continuation };
+        }
+
+        public static async Task<SearchResult> SearchYouTubeContinueAsync(string continuationToken)
+        {
+            var results = new List<YouTubeTrack>();
+            string next = null;
+            try
+            {
+                string vd = await GetVisitorDataAsync();
+                var body = new JObject { ["context"] = BuildWebContext(vd), ["continuation"] = continuationToken };
+                var data = await PostInnerTubeAsync(
+                    "https://www.youtube.com/youtubei/v1/search?prettyPrint=false", body, false);
+                ParseYouTubeSearchResponse(data, results, 50);
+                next = FindYouTubeSearchContinuation(data);
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[YouTube Search Continue] " + ex.Message); }
+            return new SearchResult { Tracks = results, ContinuationToken = next };
+        }
+
+        private static void ParseYouTubeSearchResponse(JObject data, List<YouTubeTrack> results, int maxResults)
+        {
+            var seen = new HashSet<string>();
+            // itemSection contents preserve the ranking/mixed order returned by YouTube.
+            foreach (var rawItem in data.SelectTokens("$..itemSectionRenderer.contents[*]"))
+            {
+                var item = rawItem["richItemRenderer"]?["content"] ?? rawItem;
+                var track = ParseYouTubeSearchItem(item, seen);
+                if (track != null) results.Add(track);
+                if (results.Count >= maxResults) return;
+            }
+
+            // Continuation responses may omit itemSectionRenderer.
+            if (results.Count == 0)
+            {
+                foreach (var token in data.SelectTokens("$..videoRenderer").Concat(data.SelectTokens("$..playlistRenderer")).Concat(data.SelectTokens("$..channelRenderer")))
+                {
+                    var wrapper = new JObject();
+                    string name = token["videoId"] != null ? "videoRenderer" : token["playlistId"] != null ? "playlistRenderer" : "channelRenderer";
+                    wrapper[name] = token;
+                    var track = ParseYouTubeSearchItem(wrapper, seen);
+                    if (track != null) results.Add(track);
+                    if (results.Count >= maxResults) return;
+                }
+            }
+        }
+
+        private static YouTubeTrack ParseYouTubeSearchItem(JToken item, HashSet<string> seen)
+        {
+            var vr = item["videoRenderer"];
+            if (vr != null)
+            {
+                string id = vr["videoId"]?.ToString();
+                if (string.IsNullOrEmpty(id) || !seen.Add("V:" + id)) return null;
+                return new YouTubeTrack
+                {
+                    VideoId = id, Title = ReadYouTubeText(vr["title"]),
+                    ChannelName = CleanChannelName(ReadYouTubeText(vr["ownerText"])),
+                    ChannelId = vr.SelectToken("ownerText.runs[0].navigationEndpoint.browseEndpoint.browseId")?.ToString(),
+                    ThumbnailUrl = ReadLastThumbnail(vr["thumbnail"])
+                };
+            }
+            var pr = item["playlistRenderer"];
+            if (pr != null)
+            {
+                string id = pr["playlistId"]?.ToString();
+                if (string.IsNullOrEmpty(id) || !seen.Add("P:" + id)) return null;
+                return new YouTubeTrack
+                {
+                    VideoId = "PLAYLIST:" + id, Title = ReadYouTubeText(pr["title"]),
+                    ChannelName = CleanChannelName(ReadYouTubeText(pr["ownerText"])),
+                    ThumbnailUrl = ReadLastThumbnail(pr.SelectToken("thumbnails[0]") ?? pr["thumbnailRenderer"])
+                };
+            }
+            var cr = item["channelRenderer"];
+            if (cr != null)
+            {
+                string id = cr["channelId"]?.ToString();
+                if (string.IsNullOrEmpty(id) || !seen.Add("C:" + id)) return null;
+                return new YouTubeTrack
+                {
+                    VideoId = "CHANNEL:" + id, Title = ReadYouTubeText(cr["title"]),
+                    ChannelName = "Channel", ChannelId = id, ThumbnailUrl = ReadLastThumbnail(cr["thumbnail"])
+                };
+            }
+            return null;
+        }
+
+        private static string ReadYouTubeText(JToken text)
+        {
+            if (text == null) return "";
+            string simple = text["simpleText"]?.ToString();
+            if (!string.IsNullOrEmpty(simple)) return simple;
+            var runs = text["runs"];
+            return runs == null ? "" : string.Concat(runs.Select(r => r["text"]?.ToString() ?? ""));
+        }
+
+        private static string ReadLastThumbnail(JToken token)
+        {
+            if (token == null) return "";
+            var thumbs = token as JArray ?? token["thumbnails"] as JArray ?? token.SelectToken("$..thumbnails") as JArray;
+            return thumbs != null && thumbs.Count > 0 ? thumbs.Last?["url"]?.ToString() ?? "" : "";
+        }
+
+        private static string FindYouTubeSearchContinuation(JObject data)
+        {
+            return data.SelectToken("$..continuationItemRenderer.continuationEndpoint.continuationCommand.token")?.ToString()
+                ?? data.SelectToken("$..nextContinuationData.continuation")?.ToString();
+        }
+
         /// <summary>
         /// Load more search results using continuation token
         /// </summary>

@@ -42,6 +42,8 @@ namespace YTMusicWP
         // Built-in OAuth credentials (YouTube TV public client — used by NewPipe, yt-dlp, etc.)
         private const string _builtInClientId = "861556708454-d6dlm3lh05idd8npek18k6be8ba3oc68.apps.googleusercontent.com";
         private const string _builtInClientSecret = "SboVhoG9s0rNafixCSGGKXAT";
+        private string _deviceFlowClientId = _builtInClientId;
+        private string _deviceFlowClientSecret = _builtInClientSecret;
         private string DetectOsRegion()
         {
             try
@@ -130,6 +132,7 @@ namespace YTMusicWP
                 CrossfadeSlider.Value = crossfade;
                 CrossfadeValueText.Text = crossfade + "s";
                 AutoplayToggle.IsOn = SafeGetBool(settings, "Autoplay", true);
+                VideoModeToggle.IsOn = SafeGetBool(settings, "VideoMode", false);
                 GaplessToggle.IsOn = SafeGetBool(settings, "GaplessPlayback", true);
                 NormalizeVolumeToggle.IsOn = SafeGetBool(settings, "NormalizeVolume", false);
 
@@ -145,6 +148,7 @@ namespace YTMusicWP
                 // Quality handler removed
                 CrossfadeSlider.ValueChanged += CrossfadeSlider_ValueChanged;
                 AutoplayToggle.Toggled += AutoplayToggle_Toggled;
+                VideoModeToggle.Toggled += VideoModeToggle_Toggled;
                 GaplessToggle.Toggled += GaplessToggle_Toggled;
                 NormalizeVolumeToggle.Toggled += NormalizeVolumeToggle_Toggled;
                 RegionComboBox.SelectionChanged += RegionComboBox_SelectionChanged;
@@ -203,6 +207,19 @@ namespace YTMusicWP
         private void AutoplayToggle_Toggled(object sender, RoutedEventArgs e)
         {
             ApplicationData.Current.LocalSettings.Values["Autoplay"] = AutoplayToggle.IsOn;
+        }
+
+        private void VideoModeToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            ApplicationData.Current.LocalSettings.Values["VideoMode"] = VideoModeToggle.IsOn;
+            if (!VideoModeToggle.IsOn)
+            {
+                ForegroundVideo.Stop();
+                ForegroundVideo.Source = null;
+                ForegroundVideo.Visibility = Visibility.Collapsed;
+                NowPlayingCoverRect.Visibility = Visibility.Visible;
+            }
+            if (currentTrack != null) PlayTrack(currentTrack);
         }
 
         private void GaplessToggle_Toggled(object sender, RoutedEventArgs e)
@@ -313,12 +330,14 @@ namespace YTMusicWP
             settings.Remove("GoogleTokenExpiry");
 
             _youtubeUserPlaylists.Clear();
+            _youtubeUserAlbums.Clear();
             _youtubeSubscriptions.Clear();
             favoriteTracks.Clear();
             historyTracks.Clear();
 
             // Clear all cached YouTube data
             try { var f = await ApplicationData.Current.LocalFolder.GetFileAsync("yt_playlists_cache.json"); await f.DeleteAsync(); } catch { }
+            try { var f = await ApplicationData.Current.LocalFolder.GetFileAsync("yt_albums_cache.json"); await f.DeleteAsync(); } catch { }
             try { var f = await ApplicationData.Current.LocalFolder.GetFileAsync("yt_subs_cache.json"); await f.DeleteAsync(); } catch { }
             try { var f = await ApplicationData.Current.LocalFolder.GetFileAsync("favorites.json"); await f.DeleteAsync(); } catch { }
             try { var f = await ApplicationData.Current.LocalFolder.GetFileAsync("history.json"); await f.DeleteAsync(); } catch { }
@@ -401,9 +420,23 @@ namespace YTMusicWP
         {
             try
             {
+                string configuredClientId = ClientIdTextBox.Text.Trim();
+                string configuredClientSecret = ClientSecretTextBox.Text.Trim();
+                if (string.IsNullOrEmpty(configuredClientId) != string.IsNullOrEmpty(configuredClientSecret))
+                {
+                    DeviceCodeText.Text = "ERROR";
+                    DeviceCodeStatus.Text = "Enter both Client ID and Client Secret.";
+                    DeviceCodeProgress.Visibility = Visibility.Collapsed;
+                    DeviceCodeQrLoading.Visibility = Visibility.Collapsed;
+                    return;
+                }
+
+                _deviceFlowClientId = string.IsNullOrEmpty(configuredClientId) ? _builtInClientId : configuredClientId;
+                _deviceFlowClientSecret = string.IsNullOrEmpty(configuredClientSecret) ? _builtInClientSecret : configuredClientSecret;
+
                 var content = new FormUrlEncodedContent(new[]
                 {
-                    new KeyValuePair<string, string>("client_id", _builtInClientId),
+                    new KeyValuePair<string, string>("client_id", _deviceFlowClientId),
                     new KeyValuePair<string, string>("scope", "https://www.googleapis.com/auth/youtube openid profile")
                 });
 
@@ -475,8 +508,8 @@ namespace YTMusicWP
                 {
                     var content = new FormUrlEncodedContent(new[]
                     {
-                        new KeyValuePair<string, string>("client_id", _builtInClientId),
-                        new KeyValuePair<string, string>("client_secret", _builtInClientSecret),
+                        new KeyValuePair<string, string>("client_id", _deviceFlowClientId),
+                        new KeyValuePair<string, string>("client_secret", _deviceFlowClientSecret),
                         new KeyValuePair<string, string>("device_code", deviceCode),
                         new KeyValuePair<string, string>("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
                     });
@@ -496,6 +529,8 @@ namespace YTMusicWP
                         settings["GoogleAccessToken"] = accessToken;
                         SyncNowBtn.Visibility = Visibility.Visible;
                         settings["GoogleRefreshToken"] = refreshToken;
+                        settings["GoogleClientId"] = _deviceFlowClientId;
+                        settings["GoogleClientSecret"] = _deviceFlowClientSecret;
                         long expiresInSec = json["expires_in"]?.Value<long>() ?? 3600;
                         settings["GoogleTokenExpiry"] = DateTimeOffset.UtcNow.AddSeconds(expiresInSec - 60).UtcDateTime.Subtract(new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
                         SyncNowBtn.Visibility = Visibility.Visible;
@@ -686,6 +721,40 @@ namespace YTMusicWP
             return JObject.Parse(resultJson);
         }
 
+        private async Task<JObject> AuthMusicBrowseAsync(JObject extraParams, string accessToken)
+        {
+            string visitorData = await InnerTubeClient.GetVisitorDataAsync();
+            var body = new JObject { ["context"] = InnerTubeClient.BuildMusicContext(visitorData) };
+            foreach (var prop in extraParams.Properties()) body[prop.Name] = prop.Value;
+
+            var request = new HttpRequestMessage(HttpMethod.Post,
+                "https://music.youtube.com/youtubei/v1/browse?prettyPrint=false");
+            request.Content = new StringContent(body.ToString(), System.Text.Encoding.UTF8, "application/json");
+            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
+            request.Headers.Add("Origin", "https://music.youtube.com");
+            request.Headers.Add("Referer", "https://music.youtube.com/");
+            request.Headers.Add("Authorization", "Bearer " + accessToken);
+
+            var response = await _apiClient.SendAsync(request);
+            string resultJson = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+                return new JObject { ["_error"] = (int)response.StatusCode, ["_body"] = resultJson.Length > 300 ? resultJson.Substring(0, 300) : resultJson };
+            return JObject.Parse(resultJson);
+        }
+
+        private async Task WriteSyncDiagnosticAsync(string message, bool reset = false)
+        {
+            try
+            {
+                var file = await ApplicationData.Current.LocalFolder.CreateFileAsync(
+                    "sync_diagnostics.txt", reset ? CreationCollisionOption.ReplaceExisting : CreationCollisionOption.OpenIfExists);
+                string line = DateTime.UtcNow.ToString("u") + " " + message + Environment.NewLine;
+                if (reset) await FileIO.WriteTextAsync(file, line);
+                else await FileIO.AppendTextAsync(file, line);
+            }
+            catch { }
+        }
+
         // ══════════════════════════════════════════
         // SYNC LIKED VIDEOS
         // ══════════════════════════════════════════
@@ -696,27 +765,60 @@ namespace YTMusicWP
 
         private async Task SyncLikedVideosAsync(string accessToken)
         {
+            var syncedTracks = new List<YouTubeTrack>();
             try
             {
                 LoginStatusText.Text = "Status: Syncing Liked Songs...";
-                favoriteTracks.Clear();
                 _likedSongsContinuation = null;
 
-                // Browse "VLLL" = user's Liked Videos playlist via TVHTML5 client
-                var json = await AuthInnerTubePostAsync("browse", new JObject { ["browseId"] = "VLLL" }, accessToken);
-
-                if (json["_error"] != null)
+                string pageToken = "";
+                for (int page = 0; page < 10; page++) // Cap at 500 items for 512 MB devices
                 {
-                    LoginStatusText.Text = "Sync Error: " + json["_error"];
-                    LoginStatusText.Foreground = _authOrangeBrush;
-                    return;
+                    string url = "https://www.googleapis.com/youtube/v3/videos?part=snippet&myRating=like&maxResults=50";
+                    if (!string.IsNullOrEmpty(pageToken)) url += "&pageToken=" + Uri.EscapeDataString(pageToken);
+
+                    var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("Authorization", "Bearer " + accessToken);
+                    var response = await _apiClient.SendAsync(request);
+                    string responseBody = await response.Content.ReadAsStringAsync();
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        await WriteSyncDiagnosticAsync("LikedVideos HTTP " + (int)response.StatusCode + ": "
+                            + (responseBody.Length > 300 ? responseBody.Substring(0, 300) : responseBody));
+                        LoginStatusText.Text = "Liked sync error: HTTP " + (int)response.StatusCode;
+                        LoginStatusText.Foreground = _authOrangeBrush;
+                        return; // Keep the previous in-memory/cache data
+                    }
+
+                    var json = JObject.Parse(responseBody);
+                    foreach (var item in json["items"] ?? new JArray())
+                    {
+                        string videoId = item["id"]?.ToString() ?? "";
+                        var snippet = item["snippet"];
+                        if (string.IsNullOrEmpty(videoId) || snippet == null) continue;
+                        string thumb = snippet.SelectToken("thumbnails.high.url")?.ToString()
+                            ?? snippet.SelectToken("thumbnails.medium.url")?.ToString()
+                            ?? snippet.SelectToken("thumbnails.default.url")?.ToString() ?? "";
+                        syncedTracks.Add(new YouTubeTrack
+                        {
+                            VideoId = videoId,
+                            Title = snippet["title"]?.ToString() ?? "Video " + videoId,
+                            ChannelName = CleanChannelName(snippet["channelTitle"]?.ToString() ?? ""),
+                            ChannelId = snippet["channelId"]?.ToString() ?? "",
+                            ThumbnailUrl = GetSquareThumbnail(thumb)
+                        });
+                    }
+
+                    pageToken = json["nextPageToken"]?.ToString() ?? "";
+                    if (string.IsNullOrEmpty(pageToken)) break;
                 }
 
-                // Save continuation token for lazy loading
-                _likedSongsContinuation = json.SelectToken("$..nextContinuationData.continuation")?.ToString()
-                    ?? json.SelectToken("$..continuations[0]..continuation")?.ToString();
-
-                ProcessLikedPlaylistResponse(json);
+                favoriteTracks.Clear();
+                foreach (var track in syncedTracks) favoriteTracks.Add(track);
+                SaveFavoritesAsync();
+                await WriteSyncDiagnosticAsync("LikedVideos OK count=" + favoriteTracks.Count);
+                LoginStatusText.Text = "Synced! " + favoriteTracks.Count + " liked videos";
+                LoginStatusText.Foreground = _greenBrush;
             }
             catch (Exception ex)
             {
@@ -852,13 +954,56 @@ namespace YTMusicWP
         // ══════════════════════════════════════════
         private async Task SyncAllAsync(string accessToken)
         {
+            await WriteSyncDiagnosticAsync("Sync started", true);
+
+            if (!await ValidateYouTubeDataApiAsync(accessToken))
+            {
+                await Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
+                {
+                    LoginStatusText.Text = "Enable YouTube Data API v3";
+                    LoginStatusText.Foreground = _authRedBrush;
+                    RefreshLibraryList();
+                });
+                return;
+            }
+
             await SyncLikedVideosAsync(accessToken);
-            await LoadYouTubePlaylistsCacheAsync(); // Playlists are local-only
+            await SyncYouTubePlaylistsAsync(accessToken);
+            // YouTube Data API has no endpoint for YouTube Music library albums.
+            // Keep the experimental InnerTube sync isolated so it cannot prevent
+            // official liked videos/playlists/subscriptions from completing.
+            await SyncAlbumsAsync(accessToken);
             await SyncSubscriptionsAsync(accessToken);
             // Fetch YouTube profile avatar
             await FetchAndCacheAvatarAsync(accessToken);
             // Refresh Library UI to show synced playlists/subs
-            await Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () => RefreshLibraryList());
+            await Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
+            {
+                RefreshLibraryList();
+                LoginStatusText.Text = "Synced";
+                LoginStatusText.Foreground = _greenBrush;
+            });
+        }
+
+        private async Task<bool> ValidateYouTubeDataApiAsync(string accessToken)
+        {
+            try
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get,
+                    "https://www.googleapis.com/youtube/v3/channels?part=id&mine=true&maxResults=1");
+                request.Headers.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+                var response = await _apiClient.SendAsync(request);
+                if (response.IsSuccessStatusCode) return true;
+
+                string body = await response.Content.ReadAsStringAsync();
+                await WriteSyncDiagnosticAsync("YouTube Data API HTTP " + (int)response.StatusCode + ": " + body);
+            }
+            catch (Exception ex)
+            {
+                await WriteSyncDiagnosticAsync("YouTube Data API check failed: " + ex.Message);
+            }
+            return false;
         }
 
         // ══════════════════════════════════════════
@@ -891,10 +1036,12 @@ namespace YTMusicWP
 
             try
             {
+                string clientId = SafeGetString(settings, "GoogleClientId", _builtInClientId);
+                string clientSecret = SafeGetString(settings, "GoogleClientSecret", _builtInClientSecret);
                 var content = new FormUrlEncodedContent(new[]
                 {
-                    new KeyValuePair<string, string>("client_id", _builtInClientId),
-                    new KeyValuePair<string, string>("client_secret", _builtInClientSecret),
+                    new KeyValuePair<string, string>("client_id", clientId),
+                    new KeyValuePair<string, string>("client_secret", clientSecret),
                     new KeyValuePair<string, string>("refresh_token", settings["GoogleRefreshToken"].ToString()),
                     new KeyValuePair<string, string>("grant_type", "refresh_token")
                 });
@@ -919,6 +1066,215 @@ namespace YTMusicWP
         // USER PLAYLISTS — Local only (no YouTube sync)
         // ══════════════════════════════════════════
         private ObservableCollection<YouTubePlaylistInfo> _youtubeUserPlaylists = new ObservableCollection<YouTubePlaylistInfo>();
+
+        private async Task SyncYouTubePlaylistsAsync(string accessToken)
+        {
+            var syncedPlaylists = new List<YouTubePlaylistInfo>();
+            try
+            {
+                string pageToken = "";
+                for (int page = 0; page < 4; page++) // Up to 200 playlists
+                {
+                    string url = "https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&mine=true&maxResults=50";
+                    if (!string.IsNullOrEmpty(pageToken)) url += "&pageToken=" + Uri.EscapeDataString(pageToken);
+
+                    var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("Authorization", "Bearer " + accessToken);
+                    var response = await _apiClient.SendAsync(request);
+                    string responseBody = await response.Content.ReadAsStringAsync();
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        await WriteSyncDiagnosticAsync("Playlists HTTP " + (int)response.StatusCode + ": "
+                            + (responseBody.Length > 300 ? responseBody.Substring(0, 300) : responseBody));
+                        LoginStatusText.Text = "Playlist sync error: HTTP " + (int)response.StatusCode;
+                        LoginStatusText.Foreground = _authOrangeBrush;
+                        if (_youtubeUserPlaylists.Count == 0) await LoadYouTubePlaylistsCacheAsync();
+                        return;
+                    }
+
+                    var json = JObject.Parse(responseBody);
+                    foreach (var item in json["items"] ?? new JArray())
+                    {
+                        string playlistId = item["id"]?.ToString() ?? "";
+                        var snippet = item["snippet"];
+                        if (string.IsNullOrEmpty(playlistId) || snippet == null) continue;
+                        string thumb = snippet.SelectToken("thumbnails.high.url")?.ToString()
+                            ?? snippet.SelectToken("thumbnails.medium.url")?.ToString()
+                            ?? snippet.SelectToken("thumbnails.default.url")?.ToString() ?? "";
+                        syncedPlaylists.Add(new YouTubePlaylistInfo
+                        {
+                            PlaylistId = playlistId,
+                            Title = snippet["title"]?.ToString() ?? "Playlist",
+                            TrackCount = item.SelectToken("contentDetails.itemCount")?.Value<int>() ?? 0,
+                            ThumbnailUrl = thumb
+                        });
+                    }
+
+                    pageToken = json["nextPageToken"]?.ToString() ?? "";
+                    if (string.IsNullOrEmpty(pageToken)) break;
+                }
+
+                _youtubeUserPlaylists.Clear();
+                foreach (var playlist in syncedPlaylists) _youtubeUserPlaylists.Add(playlist);
+                SaveYouTubePlaylistsCacheAsync();
+                await WriteSyncDiagnosticAsync("Playlists OK count=" + _youtubeUserPlaylists.Count);
+            }
+            catch (Exception ex)
+            {
+                LoginStatusText.Text = "Playlist sync error: " + ex.Message;
+                LoginStatusText.Foreground = _authRedBrush;
+                if (_youtubeUserPlaylists.Count == 0) await LoadYouTubePlaylistsCacheAsync();
+            }
+        }
+
+        private async Task<List<YouTubeTrack>> LoadYouTubePlaylistTracksApiAsync(string playlistId, string accessToken)
+        {
+            var tracks = new List<YouTubeTrack>();
+            string pageToken = "";
+            try
+            {
+                for (int page = 0; page < 10; page++) // Up to 500 tracks
+                {
+                    string url = "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&maxResults=50&playlistId="
+                        + Uri.EscapeDataString(playlistId);
+                    if (!string.IsNullOrEmpty(pageToken)) url += "&pageToken=" + Uri.EscapeDataString(pageToken);
+
+                    var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("Authorization", "Bearer " + accessToken);
+                    var response = await _apiClient.SendAsync(request);
+                    string responseBody = await response.Content.ReadAsStringAsync();
+                    if (!response.IsSuccessStatusCode) return tracks;
+
+                    var json = JObject.Parse(responseBody);
+                    foreach (var item in json["items"] ?? new JArray())
+                    {
+                        var snippet = item["snippet"];
+                        if (snippet == null) continue;
+                        string videoId = item.SelectToken("contentDetails.videoId")?.ToString()
+                            ?? snippet.SelectToken("resourceId.videoId")?.ToString() ?? "";
+                        string title = snippet["title"]?.ToString() ?? "";
+                        if (string.IsNullOrEmpty(videoId) || title == "Deleted video" || title == "Private video") continue;
+                        string thumb = snippet.SelectToken("thumbnails.high.url")?.ToString()
+                            ?? snippet.SelectToken("thumbnails.medium.url")?.ToString()
+                            ?? snippet.SelectToken("thumbnails.default.url")?.ToString()
+                            ?? "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg";
+                        tracks.Add(new YouTubeTrack
+                        {
+                            VideoId = videoId,
+                            Title = title,
+                            ChannelName = CleanChannelName(snippet["videoOwnerChannelTitle"]?.ToString()
+                                ?? snippet["channelTitle"]?.ToString() ?? ""),
+                            ChannelId = snippet["videoOwnerChannelId"]?.ToString() ?? "",
+                            ThumbnailUrl = thumb
+                        });
+                    }
+
+                    pageToken = json["nextPageToken"]?.ToString() ?? "";
+                    if (string.IsNullOrEmpty(pageToken)) break;
+                }
+            }
+            catch { }
+            return tracks;
+        }
+
+        private ObservableCollection<YouTubeAlbumInfo> _youtubeUserAlbums = new ObservableCollection<YouTubeAlbumInfo>();
+
+        private async Task SyncAlbumsAsync(string accessToken)
+        {
+            var albums = new Dictionary<string, YouTubeAlbumInfo>();
+            string continuation = null;
+            bool requestSucceeded = false;
+            try
+            {
+                for (int page = 0; page < 10; page++)
+                {
+                    JObject args = string.IsNullOrEmpty(continuation)
+                        ? new JObject { ["browseId"] = "FEmusic_library_albums" }
+                        : new JObject { ["continuation"] = continuation };
+                    var json = await AuthMusicBrowseAsync(args, accessToken);
+                    if (json["_error"] != null)
+                    {
+                        await WriteSyncDiagnosticAsync("Albums HTTP " + json["_error"] + ": " + (json["_body"]?.ToString() ?? ""));
+                        if (!requestSucceeded) await LoadYouTubeAlbumsCacheAsync();
+                        break;
+                    }
+                    requestSucceeded = true;
+
+                    foreach (var renderer in json.SelectTokens("$..musicTwoRowItemRenderer"))
+                    {
+                        string browseId = renderer["navigationEndpoint"]?["browseEndpoint"]?["browseId"]?.ToString()
+                            ?? renderer.SelectToken("$..browseEndpoint.browseId")?.ToString();
+                        if (string.IsNullOrEmpty(browseId) ||
+                            (!browseId.StartsWith("MPREb_") && !browseId.StartsWith("OLAK5"))) continue;
+
+                        string title = renderer["title"]?["runs"]?[0]?["text"]?.ToString() ?? "";
+                        if (string.IsNullOrEmpty(title)) continue;
+                        string artist = "";
+                        var subtitleRuns = renderer["subtitle"]?["runs"];
+                        if (subtitleRuns != null)
+                        {
+                            foreach (var run in subtitleRuns)
+                            {
+                                string text = run["text"]?.ToString();
+                                string artistId = run["navigationEndpoint"]?["browseEndpoint"]?["browseId"]?.ToString();
+                                if (!string.IsNullOrEmpty(text) && !string.IsNullOrEmpty(artistId) && artistId.StartsWith("UC"))
+                                { artist = text; break; }
+                            }
+                        }
+                        var thumbs = renderer.SelectToken("thumbnailRenderer.musicThumbnailRenderer.thumbnail.thumbnails") as JArray;
+                        string thumb = thumbs != null && thumbs.Count > 0 ? thumbs.Last?["url"]?.ToString() ?? "" : "";
+                        albums[browseId] = new YouTubeAlbumInfo { BrowseId = browseId, Title = title, Artist = artist, ThumbnailUrl = thumb };
+                    }
+
+                    string next = json.SelectToken("$..nextContinuationData.continuation")?.ToString();
+                    if (string.IsNullOrEmpty(next) || next == continuation) break;
+                    continuation = next;
+                }
+
+                if (requestSucceeded)
+                {
+                    _youtubeUserAlbums.Clear();
+                    foreach (var album in albums.Values) _youtubeUserAlbums.Add(album);
+                    await SaveYouTubeAlbumsCacheAsync();
+                    await WriteSyncDiagnosticAsync("Albums OK count=" + _youtubeUserAlbums.Count);
+                }
+            }
+            catch
+            {
+                if (_youtubeUserAlbums.Count == 0) await LoadYouTubeAlbumsCacheAsync();
+            }
+        }
+
+        private async Task SaveYouTubeAlbumsCacheAsync()
+        {
+            try
+            {
+                var arr = new JArray(_youtubeUserAlbums.Select(a => new JObject
+                {
+                    ["BrowseId"] = a.BrowseId, ["Title"] = a.Title,
+                    ["Artist"] = a.Artist ?? "", ["ThumbnailUrl"] = a.ThumbnailUrl ?? ""
+                }));
+                var file = await ApplicationData.Current.LocalFolder.CreateFileAsync("yt_albums_cache.json", CreationCollisionOption.ReplaceExisting);
+                await FileIO.WriteTextAsync(file, arr.ToString());
+            }
+            catch { }
+        }
+
+        private async Task LoadYouTubeAlbumsCacheAsync()
+        {
+            try
+            {
+                var file = await ApplicationData.Current.LocalFolder.GetFileAsync("yt_albums_cache.json");
+                var arr = JArray.Parse(await FileIO.ReadTextAsync(file));
+                _youtubeUserAlbums.Clear();
+                foreach (var item in arr) _youtubeUserAlbums.Add(new YouTubeAlbumInfo
+                {
+                    BrowseId = item["BrowseId"]?.ToString() ?? "", Title = item["Title"]?.ToString() ?? "",
+                    Artist = item["Artist"]?.ToString() ?? "", ThumbnailUrl = item["ThumbnailUrl"]?.ToString() ?? ""
+                });
+            }
+            catch { }
+        }
 
 
         private async void SaveYouTubePlaylistsCacheAsync()
@@ -1458,6 +1814,14 @@ namespace YTMusicWP
     {
         public string ChannelId { get; set; }
         public string Title { get; set; }
+        public string ThumbnailUrl { get; set; }
+    }
+
+    public class YouTubeAlbumInfo
+    {
+        public string BrowseId { get; set; }
+        public string Title { get; set; }
+        public string Artist { get; set; }
         public string ThumbnailUrl { get; set; }
     }
 }

@@ -660,15 +660,15 @@
                         <TextBlock Text="All" Foreground="White" FontSize="14" FontFamily="{StaticResource MontserratSemiBold}" FontWeight="SemiBold"/>
                     </Border>
                     <Border x:Name="FilterSongsBtn" Background="#232323" CornerRadius="16" Padding="14,6" Margin="0,0,8,0" Tapped="FilterSongsBtn_Tapped">
-                        <TextBlock Text="Music" Foreground="White" FontSize="14" FontFamily="{StaticResource MontserratSemiBold}" FontWeight="SemiBold"/>
+                        <TextBlock Text="Videos" Foreground="White" FontSize="14" FontFamily="{StaticResource MontserratSemiBold}" FontWeight="SemiBold"/>
                     </Border>
                     <Border x:Name="FilterPlaylistsBtn" Background="#232323" CornerRadius="16" Padding="14,6" Margin="0,0,8,0" Tapped="FilterPlaylistsBtn_Tapped">
                         <TextBlock Text="Playlists" Foreground="White" FontSize="14" FontFamily="{StaticResource MontserratSemiBold}" FontWeight="SemiBold"/>
                     </Border>
                     <Border x:Name="FilterArtistsBtn" Background="#232323" CornerRadius="16" Padding="14,6" Margin="0,0,8,0" Tapped="FilterArtistsBtn_Tapped">
-                        <TextBlock Text="Artists" Foreground="White" FontSize="14" FontFamily="{StaticResource MontserratSemiBold}" FontWeight="SemiBold"/>
+                        <TextBlock Text="Channels" Foreground="White" FontSize="14" FontFamily="{StaticResource MontserratSemiBold}" FontWeight="SemiBold"/>
                     </Border>
-                    <Border x:Name="FilterVideosBtn" Background="#232323" CornerRadius="16" Padding="14,6" Tapped="FilterVideosBtn_Tapped">
+                    <Border x:Name="FilterVideosBtn" Visibility="Collapsed" Background="#232323" CornerRadius="16" Padding="14,6" Tapped="FilterVideosBtn_Tapped">
                         <TextBlock Text="Videos" Foreground="White" FontSize="14" FontFamily="{StaticResource MontserratSemiBold}" FontWeight="SemiBold"/>
                     </Border>
                 </StackPanel>
@@ -1029,6 +1029,7 @@
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="LibChipAll" Content="All" Click="LibChip_Click" Tag="all" Style="{StaticResource ChipButtonStyle}" Background="#1DB954" Foreground="Black" FontFamily="{StaticResource MontserratBold}" FontWeight="Bold" FontSize="13" Padding="16,8" Margin="0,0,8,0"/>
                     <Button x:Name="LibChipPlaylists" Content="Playlists" Click="LibChip_Click" Tag="playlists" Style="{StaticResource ChipButtonStyle}" Background="#333333" Foreground="White" FontFamily="{StaticResource MontserratSemiBold}" FontSize="13" Padding="16,8" Margin="0,0,8,0"/>
+                    <Button x:Name="LibChipAlbums" Content="Albums" Click="LibChip_Click" Tag="albums" Style="{StaticResource ChipButtonStyle}" Background="#333333" Foreground="White" FontFamily="{StaticResource MontserratSemiBold}" FontSize="13" Padding="16,8" Margin="0,0,8,0"/>
                     <Button x:Name="LibChipArtists" Content="Artists" Click="LibChip_Click" Tag="artists" Style="{StaticResource ChipButtonStyle}" Background="#333333" Foreground="White" FontFamily="{StaticResource MontserratSemiBold}" FontSize="13" Padding="16,8" Margin="0,0,8,0"/>
                     <Button x:Name="LibChipDownloads" Content="Downloads" Click="LibChip_Click" Tag="downloads" Style="{StaticResource ChipButtonStyle}" Background="#333333" Foreground="White" FontFamily="{StaticResource MontserratSemiBold}" FontSize="13" Padding="16,8" Margin="0,0,8,0"/>
                     <Button x:Name="LibChipRecent" Content="Recent" Click="LibChip_Click" Tag="recent" Style="{StaticResource ChipButtonStyle}" Background="#333333" Foreground="White" FontFamily="{StaticResource MontserratSemiBold}" FontSize="13" Padding="16,8" Margin="0,0,15,0"/>
@@ -1131,11 +1132,12 @@
                                 <TextBlock Text="Account" FontSize="16" FontFamily="{StaticResource MontserratSemiBold}" Foreground="White" VerticalAlignment="Center"/>
                             </StackPanel>
 
-                            <!-- Hidden: OAuth credentials (auto-filled by app) -->
-                            <Border Background="#1E1E1E" CornerRadius="10" Margin="0,0,0,10" Visibility="Collapsed">
+                            <TextBlock Text="For Library sync, use an OAuth client of type TVs and Limited Input devices from a Google Cloud project with YouTube Data API v3 enabled. Leave both fields empty only for basic sign-in."
+                                       Foreground="#888" FontSize="11" Margin="0,0,0,10" TextWrapping="Wrap"/>
+                            <Border Background="#1E1E1E" CornerRadius="10" Margin="0,0,0,10">
                                 <TextBox x:Name="ClientIdTextBox" PlaceholderText="Client ID..." Style="{StaticResource DarkTextBoxStyle}"/>
                             </Border>
-                            <Border Background="#1E1E1E" CornerRadius="10" Margin="0,0,0,10" Visibility="Collapsed">
+                            <Border Background="#1E1E1E" CornerRadius="10" Margin="0,0,0,10">
                                 <TextBox x:Name="ClientSecretTextBox" PlaceholderText="Client Secret..." Style="{StaticResource DarkTextBoxStyle}"/>
                             </Border>
 
@@ -1342,6 +1344,20 @@
                                     <TextBlock Text="Play similar songs when queue ends" Foreground="#555" FontSize="11" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <ToggleSwitch x:Name="AutoplayToggle" Grid.Column="1" IsOn="True" OnContent="" OffContent="" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Rectangle Height="1" Fill="#252525" Margin="0,8,0,8"/>
+
+                            <!-- Foreground video playback -->
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Watch Video" Foreground="White" FontSize="15" FontFamily="{StaticResource MontserratSemiBold}"/>
+                                    <TextBlock Text="Highest compatible quality; auto-advance queue" Foreground="#555" FontSize="11" Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="VideoModeToggle" Grid.Column="1" IsOn="False" OnContent="" OffContent="" VerticalAlignment="Center"/>
                             </Grid>
                             <Rectangle Height="1" Fill="#252525" Margin="0,8,0,8"/>
 
@@ -1576,12 +1592,12 @@
                 <Viewbox Width="20" Height="20"><Path Data="M20,11V13H8L13.5,18.5 12.08,19.92 4.16,12 12.08,4.08 13.5,5.5 8,11H20Z" Fill="White"/></Viewbox>
             </Button>
             <StackPanel Grid.Row="1" Margin="20,0,20,20">
-                <Rectangle x:Name="PlaylistDetailsCoverRect" Width="220" Height="220" RadiusX="10" RadiusY="10" Visibility="Collapsed" HorizontalAlignment="Center" Margin="0,10">
+                <Rectangle x:Name="PlaylistDetailsCoverRect" Width="220" Height="220" RadiusX="10" RadiusY="10" Visibility="Collapsed" HorizontalAlignment="Center" Margin="0">
                     <Rectangle.Fill>
                         <ImageBrush x:Name="PlaylistDetailsCoverBrush" Stretch="UniformToFill" AlignmentX="Center" AlignmentY="Center"/>
                     </Rectangle.Fill>
                 </Rectangle>
-                <TextBlock x:Name="PlaylistDetailsTitle" Text="Playlist Name" FontSize="26" FontFamily="{StaticResource MontserratBold}" FontWeight="Bold" Foreground="White" TextAlignment="Center" TextWrapping="Wrap"/>
+                <TextBlock x:Name="PlaylistDetailsTitle" Text="Playlist Name" FontSize="26" LineHeight="32" FontFamily="{StaticResource MontserratBold}" FontWeight="Bold" Foreground="White" TextAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="64"/>
                 <TextBlock x:Name="PlaylistDetailsTrackCount" Text="0 tracks" FontSize="14" Foreground="#B3B3B3" TextAlignment="Center" Margin="0,5,0,0"/>
                 <Grid Margin="0,20,0,0">
                     <Grid.ColumnDefinitions>
@@ -2070,7 +2086,7 @@
                             <!-- Shadow effect -->
                             <Rectangle Width="290" Height="290" RadiusX="16" RadiusY="16" Fill="#40000000" Margin="10,10,0,0"/>
                             <!-- Album art -->
-                            <Rectangle Width="300" Height="300" RadiusX="16" RadiusY="16" RenderTransformOrigin="0.5,0.5">
+                            <Rectangle x:Name="NowPlayingCoverRect" Width="300" Height="300" RadiusX="16" RadiusY="16" RenderTransformOrigin="0.5,0.5">
                                 <Rectangle.RenderTransform>
                                     <CompositeTransform x:Name="BigCoverTransform" ScaleX="1" ScaleY="1"/>
                                 </Rectangle.RenderTransform>
@@ -2078,6 +2094,9 @@
                                     <ImageBrush x:Name="BigCoverImage" Stretch="UniformToFill" AlignmentX="Center" AlignmentY="Center"/>
                                 </Rectangle.Fill>
                             </Rectangle>
+                            <MediaElement x:Name="ForegroundVideo" Width="440" Height="300" Visibility="Collapsed"
+                                          AutoPlay="True" Stretch="Uniform" MediaEnded="ForegroundVideo_MediaEnded"
+                                          MediaFailed="ForegroundVideo_MediaFailed"/>
                         </Grid>
                     </PivotItem>
                     <!-- Lyrics page -->

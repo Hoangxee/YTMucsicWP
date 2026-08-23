@@ -54,7 +54,7 @@ namespace YTMusicWP
             // Playlists: EgeKAQQoAEABagoQAxAEEAoQCRAF
             // Artists: EgWKAQIgAWoKEAMQBBAKEAkQBQ%3D%3D
             string searchFilter = null;
-            if (songBg == activeColor) searchFilter = "songs";
+            if (songBg == activeColor) searchFilter = "videos";
             else if (videoBg == activeColor) searchFilter = "videos";
             else if (playlistBg == activeColor) searchFilter = "playlists";
             else if (artistBg == activeColor) searchFilter = "artists";
@@ -66,7 +66,7 @@ namespace YTMusicWP
                 var filteredTracks = tracks.AsEnumerable();
                 
                 // Additional client-side filter as safety net
-                if (searchFilter == "songs" || searchFilter == "videos")
+                if (searchFilter == "videos")
                     filteredTracks = filteredTracks.Where(t => !t.VideoId.StartsWith("PLAYLIST:") && !t.VideoId.StartsWith("CHANNEL:"));
                 else if (searchFilter == "playlists")
                     filteredTracks = filteredTracks.Where(t => t.VideoId.StartsWith("PLAYLIST:"));

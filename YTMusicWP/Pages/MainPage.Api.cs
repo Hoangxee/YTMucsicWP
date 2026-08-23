@@ -120,7 +120,7 @@ namespace YTMusicWP
             {
                 try
                 {
-                    var contResult = await InnerTubeClient.SearchContinueAsync(pageToken);
+                    var contResult = await InnerTubeClient.SearchYouTubeContinueAsync(pageToken);
                     if (contResult != null && contResult.Tracks != null)
                     {
                         list.AddRange(contResult.Tracks);
@@ -136,20 +136,7 @@ namespace YTMusicWP
             // ═══════════════════════════════════════════════════
             try
             {
-                // YouTube Music search params for each filter type
-                string ytmParams = null;
-                if (!string.IsNullOrEmpty(searchFilter))
-                {
-                    switch (searchFilter)
-                    {
-                        case "songs": ytmParams = "EgWKAQIIAWoKEAMQBBAKEAkQBQ%3D%3D"; break;
-                        case "videos": ytmParams = "EgWKAQIQAWoKEAMQBBAKEAkQBQ%3D%3D"; break;
-                        case "playlists": ytmParams = "EgeKAQQoAEABagoQAxAEEAoQCRAF"; break;
-                        case "artists": ytmParams = "EgWKAQIgAWoKEAMQBBAKEAkQBQ%3D%3D"; break;
-                    }
-                }
-
-                var innerResult = await InnerTubeClient.SearchWithContinuationAsync(query, 20, ytmParams);
+                var innerResult = await InnerTubeClient.SearchYouTubeWithContinuationAsync(query, 20, searchFilter);
                 if (innerResult != null && innerResult.Tracks != null && innerResult.Tracks.Count > 0)
                 {
                     list.AddRange(innerResult.Tracks);

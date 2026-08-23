@@ -303,7 +303,7 @@ namespace YTMusicWP
 
             // [OPT-8] Parallel file I/O — independent operations run concurrently
             await Task.WhenAll(LoadFavoritesAsync(), LoadHistoryAsync(), LoadPlaylistsAsync(),
-                LoadYouTubePlaylistsCacheAsync(), LoadYouTubeSubscriptionsCacheAsync());
+                LoadYouTubePlaylistsCacheAsync(), LoadYouTubeAlbumsCacheAsync(), LoadYouTubeSubscriptionsCacheAsync());
             await LoadDownloadsAsync(); // depends on filesystem scan, runs after
 
             SyncBackgroundPlayer();

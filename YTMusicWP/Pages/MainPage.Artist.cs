@@ -30,7 +30,7 @@ namespace YTMusicWP
                 if (!string.IsNullOrEmpty(coverUrl))
                 {
                     PlaylistDetailsCoverBrush.ImageSource = new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri(GetSquareThumbnail(coverUrl), UriKind.Absolute)) { DecodePixelWidth = 220 };
-                    PlaylistDetailsCoverRect.Visibility = Visibility.Visible;
+                    PlaylistDetailsCoverRect.Visibility = Visibility.Collapsed;
                 }
                 PlaylistSongsList.ItemsSource = null;
                 PlaylistDetailsView.Visibility = Visibility.Visible;
@@ -172,6 +172,18 @@ namespace YTMusicWP
                     }
                     } // end if (!isAlbumBrowse)
 
+                    // OAuth Data API fallback also supports private account playlists.
+                    if (tracks.Count == 0 && !isLocalPlaylist && !isAlbumBrowse)
+                    {
+                        string token = await GetAccessTokenAsync();
+                        if (!string.IsNullOrEmpty(token))
+                        {
+                            string apiPlaylistId = playlistId.StartsWith("VL") ? playlistId.Substring(2) : playlistId;
+                            var apiTracks = await LoadYouTubePlaylistTracksApiAsync(apiPlaylistId, token);
+                            foreach (var t in apiTracks) tracks.Add(t);
+                        }
+                    }
+
                     // Fallback: unauthenticated browse (for public playlists/albums)
                     if (tracks.Count == 0 && !isLocalPlaylist)
                     {
@@ -213,7 +225,7 @@ namespace YTMusicWP
                         try
                         {
                             PlaylistDetailsCoverBrush.ImageSource = new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri(GetSquareThumbnail(fallbackCover), UriKind.Absolute)) { DecodePixelWidth = 220 };
-                            PlaylistDetailsCoverRect.Visibility = Visibility.Visible;
+                            PlaylistDetailsCoverRect.Visibility = Visibility.Collapsed;
                         }
                         catch { }
                     }

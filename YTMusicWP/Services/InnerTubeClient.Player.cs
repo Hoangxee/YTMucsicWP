@@ -16,7 +16,7 @@ namespace YTMusicWP
         private static string _cachedCaptionsVideoId;
         private static JToken _cachedCaptionsData;
 
-        public static async Task<string> ResolveStreamUrlAsync(string videoId)
+        public static async Task<string> ResolveStreamUrlAsync(string videoId, bool preferHighestVideo = false)
         {
             LastResolveDebug = "";
             if (string.IsNullOrEmpty(videoId) || videoId.StartsWith("LOCAL:") || videoId.StartsWith("CHANNEL:") || videoId.StartsWith("PLAYLIST:"))
@@ -87,8 +87,26 @@ namespace YTMusicWP
 
                     int[] preferredItags = new[] { 18, 140, 141, 139 };
 
-                    // 1. Ưu tiên itag 18 (video 360p) vì nó không bị bóp băng thông
+                    // Video mode needs a progressive MP4 containing both video and audio.
+                    // Adaptive streams are intentionally excluded because MediaElement on
+                    // Windows Phone 8.1 cannot mux separate audio/video streams.
                     var fmts2 = data["streamingData"]?["formats"];
+                    if (preferHighestVideo && fmts2 != null)
+                    {
+                        var best = fmts2
+                            .Where(f => !string.IsNullOrEmpty(f["url"]?.ToString()) &&
+                                        (f["mimeType"]?.ToString() ?? "").StartsWith("video/mp4"))
+                            .OrderByDescending(f => f["height"]?.Value<int>() ?? 0)
+                            .ThenByDescending(f => f["bitrate"]?.Value<long>() ?? 0)
+                            .FirstOrDefault();
+                        if (best != null)
+                        {
+                            LastResolveDebug += " video:" + (best["qualityLabel"]?.ToString() ?? best["itag"]?.ToString());
+                            return PrepareStreamUrl(best["url"].ToString());
+                        }
+                    }
+
+                    // Audio mode prefers itag 18 because it is broadly supported and stable.
                     if (fmts2 != null)
                     {
                         foreach (var fmt in fmts2)
