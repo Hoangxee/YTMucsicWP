@@ -13,7 +13,9 @@ namespace FacebookWebWP
         private const string HomeUrl = "https://mbasic.facebook.com/home.php";
         private const string MessagesUrl = "https://mbasic.facebook.com/messages/";
         private const string ModernUserAgent = "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+        private const string BasicUserAgent = "Opera/9.80 (J2ME/MIDP; Opera Mini/8.0.35626/37.8069; U; en) Presto/2.12.423 Version/12.16";
         private string _currentUrl = MobileUrl;
+        private bool _basicMode;
 
         public MainPage()
         {
@@ -21,14 +23,16 @@ namespace FacebookWebWP
             NavigateSpoofed(MobileUrl);
         }
 
-        private void NavigateSpoofed(string url)
+        private void NavigateSpoofed(string url, bool basicMode = false)
         {
             _currentUrl = url;
-            StatusText.Text = "Opening " + new Uri(url).Host + " with Android Chrome User-Agent…";
+            _basicMode = basicMode;
+            var userAgent = basicMode ? BasicUserAgent : ModernUserAgent;
+            StatusText.Text = "Opening " + new Uri(url).Host + " in " + (basicMode ? "basic HTML" : "login") + " mode…";
             try
             {
                 var request = new HttpRequestMessage(HttpMethod.Get, new Uri(url));
-                request.Headers.TryAppendWithoutValidation("User-Agent", ModernUserAgent);
+                request.Headers.TryAppendWithoutValidation("User-Agent", userAgent);
                 request.Headers.TryAppendWithoutValidation("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7");
                 Browser.NavigateWithHttpRequestMessage(request);
             }
@@ -38,9 +42,9 @@ namespace FacebookWebWP
         private void Mobile_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(MobileUrl); }
         private void Basic_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(BasicUrl); }
         private void Touch_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(TouchUrl); }
-        private void Home_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(HomeUrl); }
-        private void Messages_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(MessagesUrl); }
-        private void Refresh_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(_currentUrl); }
+        private void Home_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(HomeUrl, true); }
+        private void Messages_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(MessagesUrl, true); }
+        private void Refresh_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(_currentUrl, _basicMode); }
 
         private void Browser_NavigationStarting(WebView sender, WebViewNavigationStartingEventArgs args)
         {
