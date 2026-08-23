@@ -158,8 +158,14 @@ namespace YTMusicWP
                 ForegroundVideo.Visibility = _showVideoSurface ? Visibility.Visible : Visibility.Collapsed;
                 NowPlayingCoverRect.Visibility = _showVideoSurface ? Visibility.Collapsed : Visibility.Visible;
                 VideoSurfaceToggleBtn.Visibility = Visibility.Visible;
+                VideoFullscreenBtn.Visibility = Visibility.Visible;
                 VideoSurfaceToggleBtn.Content = _showVideoSurface ? "IMAGE" : "VIDEO";
-                ForegroundVideo.Play();
+                if (_isFullscreenVideo)
+                {
+                    _fullscreenSeekPosition = TimeSpan.Zero;
+                    FullscreenVideo.Source = new Uri(resolvedUrl, UriKind.Absolute);
+                }
+                else ForegroundVideo.Play();
                 SetPlayPauseIcon(true);
                 return;
             }
@@ -167,6 +173,7 @@ namespace YTMusicWP
             ForegroundVideo.Visibility = Visibility.Collapsed;
             NowPlayingCoverRect.Visibility = Visibility.Visible;
             VideoSurfaceToggleBtn.Visibility = Visibility.Collapsed;
+            VideoFullscreenBtn.Visibility = Visibility.Collapsed;
 
             var message = new ValueSet {
                 { "UpdatePlaylist", "" }, { "Urls", urls }, { "Titles", titles }, { "Artists", artists },
@@ -305,15 +312,16 @@ namespace YTMusicWP
                 {
                     await Dispatcher.RunAsync(CoreDispatcherPriority.Low, () =>
                     {
-                        if (ForegroundVideo.Visibility != Visibility.Visible) return;
-                        TimeSpan videoDuration = ForegroundVideo.NaturalDuration.HasTimeSpan
-                            ? ForegroundVideo.NaturalDuration.TimeSpan : TimeSpan.Zero;
+                        MediaElement videoPlayer = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+                        if (videoPlayer.Source == null) return;
+                        TimeSpan videoDuration = videoPlayer.NaturalDuration.HasTimeSpan
+                            ? videoPlayer.NaturalDuration.TimeSpan : TimeSpan.Zero;
                         if (videoDuration.TotalSeconds <= 0) return;
-                        TimeSpan videoPosition = ForegroundVideo.Position;
+                        TimeSpan videoPosition = videoPlayer.Position;
                         MusicSlider.Maximum = videoDuration.TotalSeconds;
                         MusicSlider.Value = videoPosition.TotalSeconds;
-                        CurrentTimeText.Text = videoPosition.ToString(@"m\:ss");
-                        TotalTimeText.Text = videoDuration.ToString(@"m\:ss");
+                        CurrentTimeText.Text = FormatPlaybackTime(videoPosition);
+                        TotalTimeText.Text = FormatPlaybackTime(videoDuration);
                         MiniProgressBar.Maximum = videoDuration.TotalSeconds;
                         MiniProgressBar.Value = videoPosition.TotalSeconds;
                     });
@@ -337,8 +345,8 @@ namespace YTMusicWP
                     {
                         MusicSlider.Maximum    = dur.TotalSeconds;
                         MusicSlider.Value      = pos.TotalSeconds;
-                        CurrentTimeText.Text   = pos.ToString(@"m\:ss");
-                        TotalTimeText.Text     = dur.ToString(@"m\:ss");
+                        CurrentTimeText.Text   = FormatPlaybackTime(pos);
+                        TotalTimeText.Text     = FormatPlaybackTime(dur);
                         MiniProgressBar.Maximum = dur.TotalSeconds;
                         MiniProgressBar.Value   = pos.TotalSeconds;
 
@@ -463,12 +471,12 @@ namespace YTMusicWP
             _isSliderManipulating = false;
             try
             {
-                if (VideoModeToggle.IsOn && ForegroundVideo.Visibility == Visibility.Visible &&
-                    ForegroundVideo.NaturalDuration.HasTimeSpan)
+                MediaElement videoPlayer = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+                if (VideoModeToggle.IsOn && videoPlayer.Source != null && videoPlayer.NaturalDuration.HasTimeSpan)
                 {
-                    ForegroundVideo.Position = TimeSpan.FromSeconds(Math.Min(MusicSlider.Value,
-                        Math.Max(0, ForegroundVideo.NaturalDuration.TimeSpan.TotalSeconds - 2)));
-                    ForegroundVideo.Play();
+                    videoPlayer.Position = TimeSpan.FromSeconds(Math.Min(MusicSlider.Value,
+                        Math.Max(0, videoPlayer.NaturalDuration.TimeSpan.TotalSeconds - 2)));
+                    videoPlayer.Play();
                     return;
                 }
                 if (_appMediaPlayer.CurrentState != MediaPlayerState.Closed)
@@ -574,6 +582,13 @@ namespace YTMusicWP
         }
 
         private bool _showVideoSurface = true;
+        private bool _isFullscreenVideo = false;
+        private TimeSpan _fullscreenSeekPosition = TimeSpan.Zero;
+
+        private static string FormatPlaybackTime(TimeSpan value)
+        {
+            return value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : value.ToString(@"m\:ss");
+        }
 
         private void VideoSurfaceToggle_Click(object sender, RoutedEventArgs e)
         {
@@ -582,6 +597,49 @@ namespace YTMusicWP
             ForegroundVideo.Visibility = _showVideoSurface ? Visibility.Visible : Visibility.Collapsed;
             NowPlayingCoverRect.Visibility = _showVideoSurface ? Visibility.Collapsed : Visibility.Visible;
             VideoSurfaceToggleBtn.Content = _showVideoSurface ? "IMAGE" : "VIDEO";
+        }
+
+        private void OpenFullscreenVideo_Click(object sender, RoutedEventArgs e)
+        {
+            if (!VideoModeToggle.IsOn || ForegroundVideo.Source == null) return;
+            _isFullscreenVideo = true;
+            _fullscreenSeekPosition = ForegroundVideo.Position;
+            ForegroundVideo.Pause();
+            FullscreenVideoView.Visibility = Visibility.Visible;
+            FullscreenVideo.Source = ForegroundVideo.Source;
+        }
+
+        private void FullscreenVideo_MediaOpened(object sender, RoutedEventArgs e)
+        {
+            if (_fullscreenSeekPosition > TimeSpan.Zero)
+            {
+                FullscreenVideo.Position = _fullscreenSeekPosition;
+                _fullscreenSeekPosition = TimeSpan.Zero;
+            }
+            FullscreenVideo.Play();
+        }
+
+        private void CloseFullscreenVideo_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_isFullscreenVideo) return;
+            TimeSpan position = FullscreenVideo.Position;
+            FullscreenVideo.Stop();
+            FullscreenVideo.Source = null;
+            FullscreenVideoView.Visibility = Visibility.Collapsed;
+            _isFullscreenVideo = false;
+            ForegroundVideo.Position = position;
+            ForegroundVideo.Play();
+        }
+
+        private void FullscreenVideo_MediaEnded(object sender, RoutedEventArgs e)
+        {
+            PlayAdjacentVideo(1);
+        }
+
+        private void FullscreenVideo_MediaFailed(object sender, ExceptionRoutedEventArgs e)
+        {
+            ShowToast("Fullscreen video playback failed");
+            CloseFullscreenVideo_Click(null, null);
         }
 
 

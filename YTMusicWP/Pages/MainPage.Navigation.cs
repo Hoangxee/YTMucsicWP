@@ -15,7 +15,12 @@ namespace YTMusicWP
 
         private void HardwareButtons_BackPressed(object sender, BackPressedEventArgs e)
         {
-            if (CustomBottomSheet.Visibility == Visibility.Visible)
+            if (FullscreenVideoView.Visibility == Visibility.Visible)
+            {
+                e.Handled = true;
+                CloseFullscreenVideo_Click(null, null);
+            }
+            else if (CustomBottomSheet.Visibility == Visibility.Visible)
             {
                 e.Handled = true;
                 CloseBottomSheet_Click(null, null);

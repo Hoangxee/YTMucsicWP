@@ -219,6 +219,7 @@ namespace YTMusicWP
                 ForegroundVideo.Visibility = Visibility.Collapsed;
                 NowPlayingCoverRect.Visibility = Visibility.Visible;
                 VideoSurfaceToggleBtn.Visibility = Visibility.Collapsed;
+                VideoFullscreenBtn.Visibility = Visibility.Collapsed;
             }
             if (currentTrack != null) PlayTrack(currentTrack);
         }
