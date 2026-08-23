@@ -244,6 +244,7 @@ namespace YTMusicWP
                 _appMediaPlayer.CurrentStateChanged -= BackgroundMediaPlayer_CurrentStateChanged;
                 _appMediaPlayer.CurrentStateChanged += BackgroundMediaPlayer_CurrentStateChanged;
                 SyncBackgroundPlayer();
+                ReloadCurrentVideoAfterResume();
             }
             catch { }
         }

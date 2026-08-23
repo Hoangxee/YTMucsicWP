@@ -46,6 +46,7 @@ namespace YTMusicWP
             if (!track.VideoId.StartsWith("LOCAL:") && !IsInternetAvailable()) { ShowToast("No Internet connection"); return; }
 
             currentTrack = track;
+            _videoReloadAttempts = 0;
             MiniPlayerContainer.Visibility = Visibility.Visible;
             MiniTitle.Text = track.Title; BigTitle.Text = track.Title;
             // Start marquee only if NowPlaying is already open (otherwise it starts when panel opens)
@@ -610,12 +611,7 @@ namespace YTMusicWP
 
         private void ForegroundVideo_MediaFailed(object sender, ExceptionRoutedEventArgs e)
         {
-            ShowToast("Video playback failed");
-            _foregroundVideoId = "";
-            ForegroundVideo.Visibility = Visibility.Collapsed;
-            NowPlayingCoverRect.Visibility = Visibility.Visible;
-            VideoSurfaceToggleBtn.Visibility = Visibility.Collapsed;
-            VideoFullscreenBtn.Visibility = Visibility.Collapsed;
+            RetryFailedVideo();
         }
 
         private bool _showVideoSurface = true;
@@ -624,23 +620,91 @@ namespace YTMusicWP
         private bool _isFullscreenSliderManipulating = false;
         private TimeSpan _fullscreenSeekPosition = TimeSpan.Zero;
         private string _foregroundVideoId = "";
+        private TimeSpan _foregroundVideoSeekPosition = TimeSpan.Zero;
+        private int _videoResolveGeneration = 0;
+        private int _videoReloadAttempts = 0;
+        private bool _videoResolveInProgress = false;
+        private string _videoResolvingId = "";
+        private bool _videoReloadPending = false;
 
-        private async void LoadSyncedVideoAsync(string videoId)
+        private async void LoadSyncedVideoAsync(string videoId, bool forceReload = false)
         {
             if (!VideoModeToggle.IsOn || string.IsNullOrEmpty(videoId) || videoId.StartsWith("LOCAL:")) return;
-            if (_foregroundVideoId == videoId && ForegroundVideo.Source != null) return;
-            _foregroundVideoId = videoId;
+            if (!forceReload && _foregroundVideoId == videoId && ForegroundVideo.Source != null) return;
+            if (_videoResolveInProgress && _videoResolvingId == videoId) return;
+            _videoResolveInProgress = true;
+            _videoResolvingId = videoId;
+            int generation = ++_videoResolveGeneration;
             string videoUrl = "";
             try { videoUrl = await InnerTubeClient.ResolveStreamUrlAsync(videoId, true) ?? ""; }
             catch { }
-            if (currentTrack == null || currentTrack.VideoId != videoId || string.IsNullOrEmpty(videoUrl)) return;
+            if (generation == _videoResolveGeneration)
+            {
+                _videoResolveInProgress = false;
+                _videoResolvingId = "";
+            }
+            if (generation != _videoResolveGeneration || currentTrack == null || currentTrack.VideoId != videoId) return;
+            if (string.IsNullOrEmpty(videoUrl))
+            {
+                if (forceReload) ShowToast("Unable to reload video");
+                return;
+            }
             try
             {
+                TimeSpan audioPosition = _appMediaPlayer != null ? _appMediaPlayer.Position : TimeSpan.Zero;
                 Uri source = new Uri(videoUrl, UriKind.Absolute);
+                _foregroundVideoId = videoId;
+                _foregroundVideoSeekPosition = audioPosition;
+                _videoReloadPending = forceReload;
                 ForegroundVideo.Source = source;
-                if (_isFullscreenVideo) FullscreenVideo.Source = source;
+                if (_isFullscreenVideo)
+                {
+                    _fullscreenSeekPosition = audioPosition;
+                    FullscreenVideo.Source = source;
+                }
             }
             catch { }
+        }
+
+        private void ReloadCurrentVideoAfterResume()
+        {
+            if (!VideoModeToggle.IsOn || currentTrack == null) return;
+            _videoReloadAttempts = 0;
+            LoadSyncedVideoAsync(currentTrack.VideoId, true);
+        }
+
+        private void ForegroundVideo_MediaOpened(object sender, RoutedEventArgs e)
+        {
+            if (_foregroundVideoSeekPosition > TimeSpan.Zero)
+            {
+                try { ForegroundVideo.Position = _foregroundVideoSeekPosition; }
+                catch { }
+                _foregroundVideoSeekPosition = TimeSpan.Zero;
+            }
+            if (_isFullscreenVideo || (_videoReloadPending && _appMediaPlayer.CurrentState != MediaPlayerState.Playing))
+                ForegroundVideo.Pause();
+            _videoReloadPending = false;
+        }
+
+        private void RetryFailedVideo()
+        {
+            if (currentTrack == null || !VideoModeToggle.IsOn) return;
+            if (_videoResolveInProgress && _videoResolvingId == currentTrack.VideoId) return;
+            _videoReloadAttempts++;
+            if (_videoReloadAttempts <= 2)
+            {
+                ShowToast("Reloading video...");
+                LoadSyncedVideoAsync(currentTrack.VideoId, true);
+                return;
+            }
+
+            ShowToast("Video playback failed. Audio continues.");
+            _foregroundVideoId = "";
+            if (_isFullscreenVideo) CloseFullscreenVideo_Click(null, null);
+            ForegroundVideo.Visibility = Visibility.Collapsed;
+            NowPlayingCoverRect.Visibility = Visibility.Visible;
+            VideoSurfaceToggleBtn.Visibility = Visibility.Collapsed;
+            VideoFullscreenBtn.Visibility = Visibility.Collapsed;
         }
         private static string FormatPlaybackTime(TimeSpan value)
         {
@@ -707,7 +771,8 @@ namespace YTMusicWP
                 FullscreenCurrentTimeText.Text = FormatPlaybackTime(FullscreenVideo.Position);
                 FullscreenTotalTimeText.Text = FormatPlaybackTime(duration);
             }
-            FullscreenVideo.Play();
+            if (_appMediaPlayer.CurrentState == MediaPlayerState.Playing) FullscreenVideo.Play();
+            else FullscreenVideo.Pause();
         }
 
         private void FullscreenVideoSlider_PointerPressed(object sender, PointerRoutedEventArgs e)
@@ -772,8 +837,7 @@ namespace YTMusicWP
 
         private void FullscreenVideo_MediaFailed(object sender, ExceptionRoutedEventArgs e)
         {
-            ShowToast("Fullscreen video playback failed");
-            CloseFullscreenVideo_Click(null, null);
+            RetryFailedVideo();
         }
 
 
@@ -827,6 +891,7 @@ namespace YTMusicWP
 
                     if (!string.IsNullOrEmpty(vid))
                     {
+                        if (currentTrack == null || currentTrack.VideoId != vid) _videoReloadAttempts = 0;
                         currentTrack = new YouTubeTrack { VideoId = vid, Title = title, ChannelName = artist, ThumbnailUrl = thumb };
                         bool isFav = favoriteTracks.Any(t => t.VideoId == vid);
                         BigHeartBtn.Content = isFav ? "♥" : "♡";
@@ -888,6 +953,7 @@ namespace YTMusicWP
 
                     if (!string.IsNullOrEmpty(vid))
                     {
+                        if (currentTrack == null || currentTrack.VideoId != vid) _videoReloadAttempts = 0;
                         currentTrack = new YouTubeTrack { VideoId = vid, Title = title, ChannelName = artist, ThumbnailUrl = thumb };
 
                         bool isFav = favoriteTracks.Any(t => t.VideoId == vid);
