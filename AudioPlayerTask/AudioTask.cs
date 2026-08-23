@@ -371,11 +371,30 @@ namespace AudioPlayerTask
                         return null;
                     }
 
-                    int[] preferredItags = new[] { 18, 140, 141, 139 };
+                    int[] preferredItags = new[] { 140, 141, 139, 18 };
 
                     if (data.ContainsKey("streamingData"))
                     {
                         var streamingData = data.GetNamedObject("streamingData");
+                        if (streamingData.ContainsKey("adaptiveFormats"))
+                        {
+                            var audioFormats = streamingData.GetNamedArray("adaptiveFormats");
+                            foreach (int targetItag in preferredItags)
+                            {
+                                foreach (var fmtVal in audioFormats)
+                                {
+                                    if (fmtVal.ValueType != Windows.Data.Json.JsonValueType.Object) continue;
+                                    var fmt = fmtVal.GetObject();
+                                    if (fmt.ContainsKey("itag") &&
+                                        (int)fmt.GetNamedNumber("itag") == targetItag &&
+                                        fmt.ContainsKey("url"))
+                                    {
+                                        _innerTubeDebug = clientName + ":OK(audio)";
+                                        return fmt.GetNamedString("url");
+                                    }
+                                }
+                            }
+                        }
                         // 1. Ưu tiên itag 18 từ formats (không bị bóp băng thông)
                         if (streamingData.ContainsKey("formats"))
                         {

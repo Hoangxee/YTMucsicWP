@@ -85,7 +85,7 @@ namespace YTMusicWP
                     _cachedCaptionsVideoId = videoId;
                     _cachedCaptionsData = data["captions"];
 
-                    int[] preferredItags = new[] { 18, 140, 141, 139 };
+                    int[] preferredItags = new[] { 140, 141, 139, 18 };
 
                     // Video mode needs a progressive MP4 containing both video and audio.
                     // Adaptive streams are intentionally excluded because MediaElement on
@@ -107,7 +107,7 @@ namespace YTMusicWP
                     }
 
                     // Audio mode prefers itag 18 because it is broadly supported and stable.
-                    if (fmts2 != null)
+                    if (preferHighestVideo && fmts2 != null)
                     {
                         foreach (var fmt in fmts2)
                         {
