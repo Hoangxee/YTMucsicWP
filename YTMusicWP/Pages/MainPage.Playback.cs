@@ -316,7 +316,7 @@ namespace YTMusicWP
         {
             // [OPT-P1] Bail-out sớm TRƯỚC khi gọi Dispatcher — tiết kiệm thread switch trên WP8.1
             if (_isSliderManipulating) return;
-            bool videoMode = SafeGetBool(ApplicationData.Current.LocalSettings.Values, "VideoMode", false);
+            bool videoMode = SafeGetBool(ApplicationData.Current.LocalSettings.Values, "VideoMode", true);
             if (videoMode)
             {
                 try
