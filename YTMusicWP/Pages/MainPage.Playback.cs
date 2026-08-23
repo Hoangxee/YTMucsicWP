@@ -155,8 +155,10 @@ namespace YTMusicWP
                     return;
                 }
                 ForegroundVideo.Source = new Uri(resolvedUrl, UriKind.Absolute);
-                ForegroundVideo.Visibility = Visibility.Visible;
-                NowPlayingCoverRect.Visibility = Visibility.Collapsed;
+                ForegroundVideo.Visibility = _showVideoSurface ? Visibility.Visible : Visibility.Collapsed;
+                NowPlayingCoverRect.Visibility = _showVideoSurface ? Visibility.Collapsed : Visibility.Visible;
+                VideoSurfaceToggleBtn.Visibility = Visibility.Visible;
+                VideoSurfaceToggleBtn.Content = _showVideoSurface ? "IMAGE" : "VIDEO";
                 ForegroundVideo.Play();
                 SetPlayPauseIcon(true);
                 return;
@@ -164,6 +166,7 @@ namespace YTMusicWP
 
             ForegroundVideo.Visibility = Visibility.Collapsed;
             NowPlayingCoverRect.Visibility = Visibility.Visible;
+            VideoSurfaceToggleBtn.Visibility = Visibility.Collapsed;
 
             var message = new ValueSet {
                 { "UpdatePlaylist", "" }, { "Urls", urls }, { "Titles", titles }, { "Artists", artists },
@@ -568,6 +571,17 @@ namespace YTMusicWP
             int next = index + offset;
             if (next >= 0 && next < currentQueueTracks.Count) PlayTrack(currentQueueTracks[next]);
             else SetPlayPauseIcon(false);
+        }
+
+        private bool _showVideoSurface = true;
+
+        private void VideoSurfaceToggle_Click(object sender, RoutedEventArgs e)
+        {
+            if (!VideoModeToggle.IsOn || ForegroundVideo.Source == null) return;
+            _showVideoSurface = !_showVideoSurface;
+            ForegroundVideo.Visibility = _showVideoSurface ? Visibility.Visible : Visibility.Collapsed;
+            NowPlayingCoverRect.Visibility = _showVideoSurface ? Visibility.Collapsed : Visibility.Visible;
+            VideoSurfaceToggleBtn.Content = _showVideoSurface ? "IMAGE" : "VIDEO";
         }
 
 

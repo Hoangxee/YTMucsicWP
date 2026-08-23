@@ -218,6 +218,7 @@ namespace YTMusicWP
                 ForegroundVideo.Source = null;
                 ForegroundVideo.Visibility = Visibility.Collapsed;
                 NowPlayingCoverRect.Visibility = Visibility.Visible;
+                VideoSurfaceToggleBtn.Visibility = Visibility.Collapsed;
             }
             if (currentTrack != null) PlayTrack(currentTrack);
         }

@@ -178,23 +178,13 @@ namespace YTMusicWP
             SettingsPanel.Visibility = Visibility.Collapsed;
         }
 
-        private bool _createSheetOpen = false;
-
         private void NavCreate_Click(object sender, RoutedEventArgs e)
         {
-            if (_createSheetOpen)
-            {
-                CloseCreateSheet();
-            }
-            else
-            {
-                OpenCreateSheet();
-            }
+            OpenSettings_Click(sender, e);
         }
 
         private void OpenCreateSheet()
         {
-            _createSheetOpen = true;
             CreateBottomSheet.Visibility = Visibility.Visible;
             CreateBottomSheet.Opacity = 0;
 
@@ -264,8 +254,6 @@ namespace YTMusicWP
 
         private void CloseCreateSheet()
         {
-            _createSheetOpen = false;
-
             // Rotate × → + (0°)
             var rotateAnim = new Windows.UI.Xaml.Media.Animation.DoubleAnimation
             {

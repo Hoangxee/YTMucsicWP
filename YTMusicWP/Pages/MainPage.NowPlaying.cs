@@ -522,7 +522,7 @@ namespace YTMusicWP
             if (idx > 0)
             {
                 currentQueueTracks.Move(idx, idx - 1);
-                SyncQueueToBackground();
+                if (!VideoModeToggle.IsOn) SyncQueueToBackground();
             }
         }
 
@@ -537,7 +537,7 @@ namespace YTMusicWP
             if (idx >= 0 && idx < currentQueueTracks.Count - 1)
             {
                 currentQueueTracks.Move(idx, idx + 1);
-                SyncQueueToBackground();
+                if (!VideoModeToggle.IsOn) SyncQueueToBackground();
             }
         }
 
