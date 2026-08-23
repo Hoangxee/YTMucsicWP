@@ -639,6 +639,8 @@ namespace YTMusicWP
         private TimeSpan _videoPositionBeforeSuspend = TimeSpan.Zero;
         private bool _videoWasPlayingBeforeSuspend;
         private bool _backgroundHandoffStarted;
+        private volatile bool _backgroundPlaybackAcknowledged;
+        private string _backgroundHandoffVideoId = "";
         private TimeSpan _pendingVideoStartPosition = TimeSpan.Zero;
 
         private async System.Threading.Tasks.Task HandoffVideoToBackgroundAsync()
@@ -648,10 +650,11 @@ namespace YTMusicWP
             if (player.Source == null) return;
             _videoWasPlayingBeforeSuspend = player.CurrentState == MediaElementState.Playing ||
                 player.CurrentState == MediaElementState.Buffering || player.CurrentState == MediaElementState.Opening;
-            if (!_videoWasPlayingBeforeSuspend) return;
 
             _videoPositionBeforeSuspend = player.Position;
             _backgroundHandoffStarted = false;
+            _backgroundPlaybackAcknowledged = false;
+            _backgroundHandoffVideoId = currentTrack.VideoId ?? "";
             if (_handoffUrls == null || _handoffUrls.Length == 0)
             {
                 string audioUrl = "";
@@ -679,12 +682,13 @@ namespace YTMusicWP
             }
             catch { return; }
 
-            for (int i = 0; i < 15; i++)
+            for (int i = 0; i < 50; i++)
             {
                 await System.Threading.Tasks.Task.Delay(100);
                 try
                 {
-                    if (_appMediaPlayer.CurrentState == MediaPlayerState.Playing)
+                    if (_backgroundPlaybackAcknowledged ||
+                        (_appMediaPlayer != null && _appMediaPlayer.CurrentState == MediaPlayerState.Playing))
                     {
                         _backgroundHandoffStarted = true;
                         player.Pause();
@@ -692,6 +696,11 @@ namespace YTMusicWP
                     }
                 }
                 catch { }
+            }
+            if (!_backgroundHandoffStarted)
+            {
+                _pendingBackgroundPlaylist = null;
+                try { BackgroundMediaPlayer.SendMessageToBackground(new ValueSet { { "PausePlaybackMessage", "" } }); } catch { }
             }
         }
 
@@ -1092,6 +1101,17 @@ namespace YTMusicWP
 
         private async void BackgroundMediaPlayer_MessageReceivedFromBackground(object sender, MediaPlayerDataReceivedEventArgs e)
         {
+            if (e.Data.ContainsKey("PlaybackStarted"))
+            {
+                string playbackVideoId = e.Data.ContainsKey("PlaybackVideoId")
+                    ? e.Data["PlaybackVideoId"].ToString() : "";
+                if (!string.IsNullOrEmpty(_backgroundHandoffVideoId) &&
+                    playbackVideoId == _backgroundHandoffVideoId)
+                {
+                    _backgroundPlaybackAcknowledged = true;
+                }
+            }
+
             if (e.Data.ContainsKey("BackgroundReady") && _pendingBackgroundPlaylist != null)
             {
                 try { BackgroundMediaPlayer.SendMessageToBackground(_pendingBackgroundPlaylist); } catch { }
