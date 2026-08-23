@@ -177,6 +177,12 @@ namespace YTMusicWP
                     FullscreenVideo.Source = new Uri(resolvedUrl, UriKind.Absolute);
                 }
                 else ForegroundVideo.Play();
+                _handoffUrls = urls;
+                _handoffTitles = titles;
+                _handoffArtists = artists;
+                _handoffVideoIds = videoIds;
+                _handoffThumbnails = thumbnails;
+                _handoffStartIndex = relativeStartIndex;
                 SetPlayPauseIcon(true);
                 return;
             }
@@ -633,6 +639,74 @@ namespace YTMusicWP
         private bool _fullscreenLandscape = false;
         private bool _isFullscreenSliderManipulating = false;
         private TimeSpan _fullscreenSeekPosition = TimeSpan.Zero;
+        private string[] _handoffUrls;
+        private string[] _handoffTitles;
+        private string[] _handoffArtists;
+        private string[] _handoffVideoIds;
+        private string[] _handoffThumbnails;
+        private int _handoffStartIndex;
+        private TimeSpan _videoPositionBeforeSuspend = TimeSpan.Zero;
+        private bool _videoWasPlayingBeforeSuspend;
+        private bool _backgroundHandoffStarted;
+
+        private async System.Threading.Tasks.Task HandoffVideoToBackgroundAsync()
+        {
+            if (!VideoModeToggle.IsOn || _handoffUrls == null || currentTrack == null) return;
+            MediaElement player = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+            if (player.Source == null) return;
+            _videoWasPlayingBeforeSuspend = player.CurrentState == MediaElementState.Playing ||
+                player.CurrentState == MediaElementState.Buffering || player.CurrentState == MediaElementState.Opening;
+            if (!_videoWasPlayingBeforeSuspend) return;
+
+            _videoPositionBeforeSuspend = player.Position;
+            _backgroundHandoffStarted = false;
+            var message = new ValueSet {
+                { "UpdatePlaylist", "" }, { "Urls", _handoffUrls }, { "Titles", _handoffTitles },
+                { "Artists", _handoffArtists }, { "VideoIds", _handoffVideoIds },
+                { "Thumbnails", _handoffThumbnails }, { "StartIndex", _handoffStartIndex },
+                { "FastUrl", _handoffUrls[_handoffStartIndex] },
+                { "StartPositionTicks", _videoPositionBeforeSuspend.Ticks }
+            };
+            try { BackgroundMediaPlayer.SendMessageToBackground(message); }
+            catch { return; }
+
+            for (int i = 0; i < 15; i++)
+            {
+                await System.Threading.Tasks.Task.Delay(100);
+                try
+                {
+                    if (_appMediaPlayer.CurrentState == MediaPlayerState.Playing)
+                    {
+                        _backgroundHandoffStarted = true;
+                        player.Pause();
+                        break;
+                    }
+                }
+                catch { }
+            }
+        }
+
+        private void ResumeVideoAfterBackground()
+        {
+            if (!_videoWasPlayingBeforeSuspend) return;
+            try
+            {
+                MediaElement player = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+                TimeSpan position = _videoPositionBeforeSuspend;
+                if (_backgroundHandoffStarted && _appMediaPlayer.Position > position)
+                    position = _appMediaPlayer.Position;
+                if (_appMediaPlayer.CurrentState != MediaPlayerState.Closed) _appMediaPlayer.Pause();
+                if (player.Source != null)
+                {
+                    player.Position = position;
+                    player.Play();
+                    SetPlayPauseIcon(true);
+                }
+            }
+            catch { }
+            _backgroundHandoffStarted = false;
+            _videoWasPlayingBeforeSuspend = false;
+        }
 
         private static string FormatPlaybackTime(TimeSpan value)
         {
