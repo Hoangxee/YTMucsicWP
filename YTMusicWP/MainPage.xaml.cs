@@ -213,6 +213,7 @@ namespace YTMusicWP
         {
             try
             {
+                HandoffVideoToBackground();
                 if (_bgTimer != null)
                 {
                     _bgTimer.Dispose();
@@ -243,6 +244,7 @@ namespace YTMusicWP
                 BackgroundMediaPlayer.MessageReceivedFromBackground += BackgroundMediaPlayer_MessageReceivedFromBackground;
                 _appMediaPlayer.CurrentStateChanged -= BackgroundMediaPlayer_CurrentStateChanged;
                 _appMediaPlayer.CurrentStateChanged += BackgroundMediaPlayer_CurrentStateChanged;
+                ResumeVideoFromBackground();
                 SyncBackgroundPlayer();
             }
             catch { }

@@ -633,6 +633,78 @@ namespace YTMusicWP
         private bool _fullscreenLandscape = false;
         private bool _isFullscreenSliderManipulating = false;
         private TimeSpan _fullscreenSeekPosition = TimeSpan.Zero;
+        private bool _videoHandedOffToBackground = false;
+        private bool _videoWasPlayingBeforeSuspend = false;
+        private TimeSpan _videoPositionBeforeSuspend = TimeSpan.Zero;
+
+        private void HandoffVideoToBackground()
+        {
+            if (!VideoModeToggle.IsOn || currentTrack == null || currentTrack.VideoId.StartsWith("LOCAL:") || currentQueueTracks.Count == 0) return;
+
+            MediaElement player = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+            Uri streamSource = player.Source ?? ForegroundVideo.Source;
+            if (streamSource == null) return;
+            if (player.CurrentState != MediaElementState.Playing &&
+                player.CurrentState != MediaElementState.Buffering &&
+                player.CurrentState != MediaElementState.Opening) return;
+
+            int currentIndex = currentQueueTracks.IndexOf(currentTrack);
+            if (currentIndex < 0) return;
+            int sliceStart = Math.Max(0, currentIndex - 50);
+            int sliceEnd = Math.Min(currentQueueTracks.Count - 1, currentIndex + 49);
+            int count = sliceEnd - sliceStart + 1;
+            int relativeIndex = currentIndex - sliceStart;
+            string[] urls = new string[count];
+            string[] titles = new string[count];
+            string[] artists = new string[count];
+            string[] videoIds = new string[count];
+            string[] thumbnails = new string[count];
+
+            for (int i = 0; i < count; i++)
+            {
+                YouTubeTrack item = currentQueueTracks[sliceStart + i];
+                urls[i] = item.VideoId.StartsWith("LOCAL:")
+                    ? "ms-appdata:///local/" + item.VideoId.Substring(6)
+                    : "";
+                titles[i] = item.Title ?? "";
+                artists[i] = item.ChannelName ?? "";
+                videoIds[i] = item.VideoId ?? "";
+                thumbnails[i] = item.ThumbnailUrl ?? "";
+            }
+
+            urls[relativeIndex] = streamSource.AbsoluteUri;
+            _videoWasPlayingBeforeSuspend = true;
+            _videoPositionBeforeSuspend = player.Position;
+            var message = new ValueSet {
+                { "UpdatePlaylist", "" }, { "Urls", urls }, { "Titles", titles }, { "Artists", artists },
+                { "VideoIds", videoIds }, { "Thumbnails", thumbnails }, { "StartIndex", relativeIndex },
+                { "FastUrl", urls[relativeIndex] }, { "StartPositionTicks", _videoPositionBeforeSuspend.Ticks }
+            };
+            try
+            {
+                BackgroundMediaPlayer.SendMessageToBackground(message);
+                player.Pause();
+                _videoHandedOffToBackground = true;
+            }
+            catch { }
+        }
+
+        private void ResumeVideoFromBackground()
+        {
+            if (!_videoHandedOffToBackground) return;
+            try
+            {
+                MediaElement player = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+                TimeSpan position = _appMediaPlayer.Position;
+                if (position < _videoPositionBeforeSuspend) position = _videoPositionBeforeSuspend;
+                _appMediaPlayer.Pause();
+                player.Position = position;
+                if (_videoWasPlayingBeforeSuspend) player.Play();
+                SetPlayPauseIcon(_videoWasPlayingBeforeSuspend);
+            }
+            catch { }
+            _videoHandedOffToBackground = false;
+        }
 
         private static string FormatPlaybackTime(TimeSpan value)
         {
