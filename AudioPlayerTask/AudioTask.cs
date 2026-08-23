@@ -91,6 +91,12 @@ namespace AudioPlayerTask
             }
             else if (e.Data.ContainsKey("UpdatePlaylist"))
             {
+                _systemControls.IsEnabled = true;
+                _systemControls.IsPlayEnabled = true;
+                _systemControls.IsPauseEnabled = true;
+                _systemControls.IsStopEnabled = true;
+                _systemControls.IsNextEnabled = true;
+                _systemControls.IsPreviousEnabled = true;
                 _trackList = new List<string>((string[])e.Data["Urls"]);
                 _titleList = new List<string>((string[])e.Data["Titles"]);
                 _artistList = new List<string>((string[])e.Data["Artists"]);
@@ -146,6 +152,7 @@ namespace AudioPlayerTask
             {
                 try
                 {
+                    Windows.Storage.ApplicationData.Current.LocalSettings.Values["BackgroundWasPlaying"] = false;
                     StopCrossfadeMonitor();
                     _mediaPlayer.Pause();
                     _trackList.Clear();
@@ -721,11 +728,19 @@ namespace AudioPlayerTask
         {
             try
             {
-                if (_mediaPlayer == null || _trackList.Count <= 1) return;
+                if (_mediaPlayer == null) return;
                 if (_mediaPlayer.CurrentState != MediaPlayerState.Playing) return;
 
                 var pos = _mediaPlayer.Position;
                 var naturalDuration = _mediaPlayer.NaturalDuration;
+                try
+                {
+                    var playbackState = Windows.Storage.ApplicationData.Current.LocalSettings.Values;
+                    playbackState["BackgroundPositionTicks"] = pos.Ticks;
+                    playbackState["BackgroundWasPlaying"] = true;
+                }
+                catch { }
+                if (_trackList.Count <= 1) return;
                 if (naturalDuration == TimeSpan.Zero || naturalDuration.TotalSeconds < 10) return;
 
                 double remaining = (naturalDuration - pos).TotalSeconds;
@@ -900,6 +915,7 @@ namespace AudioPlayerTask
             {
                 if (sender.CurrentState == MediaPlayerState.Playing)
                 {
+                    try { Windows.Storage.ApplicationData.Current.LocalSettings.Values["BackgroundWasPlaying"] = true; } catch { }
                     // [FIX-SOF] Only reset retryCount if NOT in a retry cycle
                     // Without this guard, player briefly entering Playing before failing
                     // would reset _retryCount → infinite retry → StackOverflow
@@ -916,6 +932,7 @@ namespace AudioPlayerTask
                 }
                 else if (sender.CurrentState == MediaPlayerState.Paused)
                 {
+                    try { Windows.Storage.ApplicationData.Current.LocalSettings.Values["BackgroundWasPlaying"] = false; } catch { }
                     _systemControls.PlaybackStatus = MediaPlaybackStatus.Paused;
                     try
                     {
@@ -954,6 +971,7 @@ namespace AudioPlayerTask
                 case SystemMediaTransportControlsButton.Stop:
                     try
                     {
+                        Windows.Storage.ApplicationData.Current.LocalSettings.Values["BackgroundWasPlaying"] = false;
                         StopCrossfadeMonitor();
                         _mediaPlayer.Pause();
                         _systemControls.PlaybackStatus = MediaPlaybackStatus.Stopped;

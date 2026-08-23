@@ -248,7 +248,11 @@ namespace YTMusicWP
                 _appMediaPlayer.CurrentStateChanged += BackgroundMediaPlayer_CurrentStateChanged;
                 RestorePlaybackUiState();
                 if (_showVideoSurface) await ResumeSuspendedVideoAsync();
-                else SyncBackgroundPlayer();
+                else
+                {
+                    SyncBackgroundPlayer();
+                    await ResumeBackgroundAudioIfNeededAsync();
+                }
                 TimerCallback(null);
             }
             catch { }
@@ -316,6 +320,7 @@ namespace YTMusicWP
             SyncBackgroundPlayer();
             RestorePlaybackUiState();
             if (_showVideoSurface) await ResumeSuspendedVideoAsync();
+            else await ResumeBackgroundAudioIfNeededAsync();
 
             if (!IsInternetAvailable())
             {

@@ -992,11 +992,14 @@ namespace YTMusicWP
             try
             {
                 var localSettings = ApplicationData.Current.LocalSettings.Values;
+                string storedVideoId = localSettings.ContainsKey("CurrentVideoId") ? localSettings["CurrentVideoId"].ToString() : "";
+                bool hasPlayerState = _appMediaPlayer != null &&
+                    (_appMediaPlayer.CurrentState == MediaPlayerState.Playing || _appMediaPlayer.CurrentState == MediaPlayerState.Paused);
 
-                if (_appMediaPlayer.CurrentState == MediaPlayerState.Playing || _appMediaPlayer.CurrentState == MediaPlayerState.Paused)
+                if (hasPlayerState || !string.IsNullOrEmpty(storedVideoId))
                 {
                     MiniPlayerContainer.Visibility = Visibility.Visible;
-                    bool isPlaying = (_appMediaPlayer.CurrentState == MediaPlayerState.Playing);
+                    bool isPlaying = hasPlayerState && _appMediaPlayer.CurrentState == MediaPlayerState.Playing;
                     SetPlayPauseIcon(isPlaying);
 
                     string title = localSettings.ContainsKey("CurrentTitle") ? localSettings["CurrentTitle"].ToString() : "Unknown";
@@ -1045,6 +1048,43 @@ namespace YTMusicWP
                         var ignored = UpdateLyricsAsync(title, artist);
                         UpdateNowPlayingGradient(title, artist);
                     }
+                }
+            }
+            catch { }
+        }
+
+        private async System.Threading.Tasks.Task ResumeBackgroundAudioIfNeededAsync()
+        {
+            if (_showVideoSurface || currentTrack == null || currentTrack.VideoId.StartsWith("LOCAL:")) return;
+            try
+            {
+                var values = ApplicationData.Current.LocalSettings.Values;
+                bool wasPlaying = values.ContainsKey("BackgroundWasPlaying") && (bool)values["BackgroundWasPlaying"];
+                if (!wasPlaying) return;
+
+                if (_appMediaPlayer == null || _appMediaPlayer.CurrentState == MediaPlayerState.Closed)
+                {
+                    _appMediaPlayer = BackgroundMediaPlayer.Current;
+                    string audioUrl = await InnerTubeClient.ResolveStreamUrlAsync(currentTrack.VideoId, false) ?? "";
+                    if (string.IsNullOrEmpty(audioUrl)) return;
+                    long ticks = values.ContainsKey("BackgroundPositionTicks")
+                        ? (long)values["BackgroundPositionTicks"] : 0L;
+                    var message = new ValueSet {
+                        { "UpdatePlaylist", "" },
+                        { "Urls", new[] { audioUrl } },
+                        { "Titles", new[] { currentTrack.Title ?? "" } },
+                        { "Artists", new[] { currentTrack.ChannelName ?? "" } },
+                        { "VideoIds", new[] { currentTrack.VideoId ?? "" } },
+                        { "Thumbnails", new[] { currentTrack.ThumbnailUrl ?? "" } },
+                        { "StartIndex", 0 },
+                        { "FastUrl", audioUrl },
+                        { "StartPositionTicks", ticks }
+                    };
+                    SendPlaylistToBackground(message);
+                }
+                else if (_appMediaPlayer.CurrentState == MediaPlayerState.Paused)
+                {
+                    _appMediaPlayer.Play();
                 }
             }
             catch { }
