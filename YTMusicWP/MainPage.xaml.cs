@@ -209,13 +209,12 @@ namespace YTMusicWP
             else GreetingText.Text = "Good evening";
         }
 
-        private async void Current_Suspending(object sender, Windows.ApplicationModel.SuspendingEventArgs e)
+        private void Current_Suspending(object sender, Windows.ApplicationModel.SuspendingEventArgs e)
         {
-            var deferral = e.SuspendingOperation.GetDeferral();
             try
             {
                 SavePlaybackUiState();
-                await HandoffVideoToBackgroundAsync();
+                PauseVideoForSuspension();
                 if (_bgTimer != null)
                 {
                     _bgTimer.Dispose();
@@ -225,7 +224,6 @@ namespace YTMusicWP
                 _appMediaPlayer.CurrentStateChanged -= BackgroundMediaPlayer_CurrentStateChanged;
             }
             catch { }
-            finally { deferral.Complete(); }
         }
 
         private void Current_Resuming(object sender, object e)
@@ -247,9 +245,10 @@ namespace YTMusicWP
                 BackgroundMediaPlayer.MessageReceivedFromBackground += BackgroundMediaPlayer_MessageReceivedFromBackground;
                 _appMediaPlayer.CurrentStateChanged -= BackgroundMediaPlayer_CurrentStateChanged;
                 _appMediaPlayer.CurrentStateChanged += BackgroundMediaPlayer_CurrentStateChanged;
-                ResumeVideoAfterBackground();
-                SyncBackgroundPlayer();
+                if (_showVideoSurface) ResumeSuspendedVideo();
+                else SyncBackgroundPlayer();
                 RestorePlaybackUiState();
+                TimerCallback(null);
             }
             catch { }
         }
