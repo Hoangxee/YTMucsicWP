@@ -916,16 +916,6 @@ namespace AudioPlayerTask
                 if (sender.CurrentState == MediaPlayerState.Playing)
                 {
                     try { Windows.Storage.ApplicationData.Current.LocalSettings.Values["BackgroundWasPlaying"] = true; } catch { }
-                    try
-                    {
-                        string playingVideoId = (_currentTrackIndex >= 0 && _currentTrackIndex < _videoIdList.Count)
-                            ? _videoIdList[_currentTrackIndex] : "";
-                        BackgroundMediaPlayer.SendMessageToForeground(new ValueSet {
-                            { "PlaybackStarted", "" },
-                            { "PlaybackVideoId", playingVideoId }
-                        });
-                    }
-                    catch { }
                     // [FIX-SOF] Only reset retryCount if NOT in a retry cycle
                     // Without this guard, player briefly entering Playing before failing
                     // would reset _retryCount → infinite retry → StackOverflow

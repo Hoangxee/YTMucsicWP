@@ -18,10 +18,15 @@ namespace YTMusicWP
     {
         private ValueSet _pendingBackgroundPlaylist;
 
-        private void SendPlaylistToBackground(ValueSet message)
+        private bool SendPlaylistToBackground(ValueSet message)
         {
             _pendingBackgroundPlaylist = message;
-            try { BackgroundMediaPlayer.SendMessageToBackground(message); } catch { }
+            try
+            {
+                BackgroundMediaPlayer.SendMessageToBackground(message);
+                return true;
+            }
+            catch { return false; }
         }
 
         private async void PlayTrack(YouTubeTrack track)
@@ -638,70 +643,90 @@ namespace YTMusicWP
         private int _handoffStartIndex;
         private TimeSpan _videoPositionBeforeSuspend = TimeSpan.Zero;
         private bool _videoWasPlayingBeforeSuspend;
-        private bool _backgroundHandoffStarted;
-        private volatile bool _backgroundPlaybackAcknowledged;
-        private string _backgroundHandoffVideoId = "";
         private TimeSpan _pendingVideoStartPosition = TimeSpan.Zero;
 
-        private async System.Threading.Tasks.Task HandoffVideoToBackgroundAsync()
+        private async System.Threading.Tasks.Task<bool> HandoffVideoToBackgroundAsync()
         {
-            if (!VideoModeToggle.IsOn || currentTrack == null) return;
+            if (!VideoModeToggle.IsOn || currentTrack == null) return false;
+            YouTubeTrack handoffTrack = currentTrack;
+            string handoffVideoId = handoffTrack.VideoId ?? "";
             MediaElement player = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
-            if (player.Source == null) return;
-            _videoWasPlayingBeforeSuspend = player.CurrentState == MediaElementState.Playing ||
+            bool wasPlaying = player.CurrentState == MediaElementState.Playing ||
                 player.CurrentState == MediaElementState.Buffering || player.CurrentState == MediaElementState.Opening;
 
-            _videoPositionBeforeSuspend = player.Position;
-            _backgroundHandoffStarted = false;
-            _backgroundPlaybackAcknowledged = false;
-            _backgroundHandoffVideoId = currentTrack.VideoId ?? "";
-            if (_handoffUrls == null || _handoffUrls.Length == 0)
+            TimeSpan handoffPosition = TimeSpan.Zero;
+            try { handoffPosition = player.Position; } catch { }
+            if (handoffPosition <= TimeSpan.Zero)
+                handoffPosition = _pendingVideoStartPosition;
+            if (handoffPosition <= TimeSpan.Zero)
             {
-                string audioUrl = "";
-                try { audioUrl = await InnerTubeClient.ResolveStreamUrlAsync(currentTrack.VideoId, false) ?? ""; }
+                handoffPosition = _videoPositionBeforeSuspend;
+                try
+                {
+                    var values = ApplicationData.Current.LocalSettings.Values;
+                    if (handoffPosition <= TimeSpan.Zero && values.ContainsKey("VideoPositionTicks"))
+                        handoffPosition = TimeSpan.FromTicks((long)values["VideoPositionTicks"]);
+                }
                 catch { }
-                if (string.IsNullOrEmpty(audioUrl)) return;
+            }
+            _videoPositionBeforeSuspend = handoffPosition;
+            try { if (player.Source != null) player.Pause(); } catch { }
+
+            string audioUrl = "";
+            try { audioUrl = await InnerTubeClient.ResolveStreamUrlAsync(handoffVideoId, false) ?? ""; }
+            catch { }
+            if (string.IsNullOrEmpty(audioUrl))
+            {
+                try { if (wasPlaying && player.Source != null) player.Play(); } catch { }
+                return false;
+            }
+            if (!_showVideoSurface || currentTrack == null || currentTrack.VideoId != handoffVideoId)
+                return false;
+
+            _showVideoSurface = false;
+            try { if (player.Source != null) player.Pause(); } catch { }
+
+            bool validQueue = _handoffUrls != null && _handoffUrls.Length > 0 &&
+                _handoffTitles != null && _handoffTitles.Length == _handoffUrls.Length &&
+                _handoffArtists != null && _handoffArtists.Length == _handoffUrls.Length &&
+                _handoffVideoIds != null && _handoffVideoIds.Length == _handoffUrls.Length &&
+                _handoffThumbnails != null && _handoffThumbnails.Length == _handoffUrls.Length;
+            int currentIndex = validQueue ? Array.IndexOf(_handoffVideoIds, handoffVideoId) : -1;
+            if (currentIndex < 0)
+            {
                 _handoffUrls = new[] { audioUrl };
-                _handoffTitles = new[] { currentTrack.Title ?? "" };
-                _handoffArtists = new[] { currentTrack.ChannelName ?? "" };
-                _handoffVideoIds = new[] { currentTrack.VideoId ?? "" };
-                _handoffThumbnails = new[] { currentTrack.ThumbnailUrl ?? "" };
+                _handoffTitles = new[] { handoffTrack.Title ?? "" };
+                _handoffArtists = new[] { handoffTrack.ChannelName ?? "" };
+                _handoffVideoIds = new[] { handoffVideoId };
+                _handoffThumbnails = new[] { handoffTrack.ThumbnailUrl ?? "" };
                 _handoffStartIndex = 0;
             }
+            else
+            {
+                _handoffStartIndex = currentIndex;
+                _handoffUrls[_handoffStartIndex] = audioUrl;
+                _handoffTitles[_handoffStartIndex] = handoffTrack.Title ?? "";
+                _handoffArtists[_handoffStartIndex] = handoffTrack.ChannelName ?? "";
+                _handoffVideoIds[_handoffStartIndex] = handoffVideoId;
+                _handoffThumbnails[_handoffStartIndex] = handoffTrack.ThumbnailUrl ?? "";
+            }
+
             var message = new ValueSet {
                 { "UpdatePlaylist", "" }, { "Urls", _handoffUrls }, { "Titles", _handoffTitles },
                 { "Artists", _handoffArtists }, { "VideoIds", _handoffVideoIds },
                 { "Thumbnails", _handoffThumbnails }, { "StartIndex", _handoffStartIndex },
-                { "FastUrl", _handoffUrls[_handoffStartIndex] },
+                { "FastUrl", audioUrl },
                 { "StartPositionTicks", _videoPositionBeforeSuspend.Ticks }
             };
-            try
+            if (SendPlaylistToBackground(message))
             {
-                _pendingBackgroundPlaylist = message;
-                BackgroundMediaPlayer.SendMessageToBackground(message);
+                return true;
             }
-            catch { return; }
 
-            for (int i = 0; i < 50; i++)
-            {
-                await System.Threading.Tasks.Task.Delay(100);
-                try
-                {
-                    if (_backgroundPlaybackAcknowledged ||
-                        (_appMediaPlayer != null && _appMediaPlayer.CurrentState == MediaPlayerState.Playing))
-                    {
-                        _backgroundHandoffStarted = true;
-                        player.Pause();
-                        break;
-                    }
-                }
-                catch { }
-            }
-            if (!_backgroundHandoffStarted)
-            {
-                _pendingBackgroundPlaylist = null;
-                try { BackgroundMediaPlayer.SendMessageToBackground(new ValueSet { { "PausePlaybackMessage", "" } }); } catch { }
-            }
+            _pendingBackgroundPlaylist = null;
+            _showVideoSurface = true;
+            try { if (wasPlaying && player.Source != null) player.Play(); } catch { }
+            return false;
         }
 
         private void PauseVideoForSuspension()
@@ -741,7 +766,7 @@ namespace YTMusicWP
                 if (player.Source == null && currentTrack != null && !currentTrack.VideoId.StartsWith("LOCAL:"))
                 {
                     string videoUrl = await InnerTubeClient.ResolveStreamUrlAsync(currentTrack.VideoId, true) ?? "";
-                    if (string.IsNullOrEmpty(videoUrl)) return;
+                    if (!_showVideoSurface || string.IsNullOrEmpty(videoUrl)) return;
                     _pendingVideoStartPosition = _videoPositionBeforeSuspend;
                     player.Source = new Uri(videoUrl, UriKind.Absolute);
                     return;
@@ -769,8 +794,11 @@ namespace YTMusicWP
 
             if (_showVideoSurface)
             {
-                await HandoffVideoToBackgroundAsync();
-                if (!_backgroundHandoffStarted)
+                bool handoffStarted;
+                VideoSurfaceToggleBtn.IsEnabled = false;
+                try { handoffStarted = await HandoffVideoToBackgroundAsync(); }
+                finally { VideoSurfaceToggleBtn.IsEnabled = true; }
+                if (!handoffStarted)
                 {
                     ShowToast("Unable to continue audio in background");
                     return;
@@ -780,8 +808,8 @@ namespace YTMusicWP
                 ForegroundVideo.Visibility = Visibility.Collapsed;
                 NowPlayingCoverRect.Visibility = Visibility.Visible;
                 VideoSurfaceToggleBtn.Content = "VIDEO";
+                ApplicationData.Current.LocalSettings.Values["PlaybackSurfaceMode"] = "Image";
                 _videoWasPlayingBeforeSuspend = false;
-                _backgroundHandoffStarted = false;
                 SetPlayPauseIcon(true);
                 return;
             }
@@ -814,6 +842,7 @@ namespace YTMusicWP
             }
 
             _showVideoSurface = true;
+            ApplicationData.Current.LocalSettings.Values["PlaybackSurfaceMode"] = "Video";
             _pendingBackgroundPlaylist = null;
             try { BackgroundMediaPlayer.SendMessageToBackground(new ValueSet { { "PausePlaybackMessage", "" } }); } catch { }
             ForegroundVideo.Visibility = Visibility.Visible;
@@ -827,6 +856,7 @@ namespace YTMusicWP
             if (!_showVideoSurface) return;
             try
             {
+                VideoFullscreenBtn.Visibility = Visibility.Visible;
                 ForegroundVideo.Position = _pendingVideoStartPosition;
                 _pendingVideoStartPosition = TimeSpan.Zero;
                 ForegroundVideo.Play();
@@ -868,6 +898,11 @@ namespace YTMusicWP
                     {
                         ForegroundVideo.Visibility = Visibility.Collapsed;
                         NowPlayingCoverRect.Visibility = Visibility.Visible;
+                    }
+                    else
+                    {
+                        ForegroundVideo.Visibility = Visibility.Visible;
+                        NowPlayingCoverRect.Visibility = Visibility.Collapsed;
                     }
                 }
 
@@ -1101,17 +1136,6 @@ namespace YTMusicWP
 
         private async void BackgroundMediaPlayer_MessageReceivedFromBackground(object sender, MediaPlayerDataReceivedEventArgs e)
         {
-            if (e.Data.ContainsKey("PlaybackStarted"))
-            {
-                string playbackVideoId = e.Data.ContainsKey("PlaybackVideoId")
-                    ? e.Data["PlaybackVideoId"].ToString() : "";
-                if (!string.IsNullOrEmpty(_backgroundHandoffVideoId) &&
-                    playbackVideoId == _backgroundHandoffVideoId)
-                {
-                    _backgroundPlaybackAcknowledged = true;
-                }
-            }
-
             if (e.Data.ContainsKey("BackgroundReady") && _pendingBackgroundPlaylist != null)
             {
                 try { BackgroundMediaPlayer.SendMessageToBackground(_pendingBackgroundPlaylist); } catch { }
