@@ -233,17 +233,18 @@ namespace YTMusicWP
             {
                 UpdateGreetingText();
 
-                // FIX: Làm mới lại liên kết với OS Player khi bị ngắt kết nối do ngủ đông
+                // Register before accessing Current so BackgroundReady cannot be missed
+                // when WP8.1 recreates a terminated background audio task.
+                BackgroundMediaPlayer.MessageReceivedFromBackground -= BackgroundMediaPlayer_MessageReceivedFromBackground;
+                BackgroundMediaPlayer.MessageReceivedFromBackground += BackgroundMediaPlayer_MessageReceivedFromBackground;
                 _appMediaPlayer = BackgroundMediaPlayer.Current;
+                try { BackgroundMediaPlayer.SendMessageToBackground(new Windows.Foundation.Collections.ValueSet { { "Ping", "" } }); } catch { }
                 _isSliderManipulating = false; // Mở khóa thanh tua nhạc nếu bị kẹt
 
                 if (_bgTimer == null)
                 {
                     _bgTimer = new Timer(TimerCallback, null, 0, 1000);
                 }
-                // FIX #5: Unsubscribe trước để tránh double subscription khi fast resume
-                BackgroundMediaPlayer.MessageReceivedFromBackground -= BackgroundMediaPlayer_MessageReceivedFromBackground;
-                BackgroundMediaPlayer.MessageReceivedFromBackground += BackgroundMediaPlayer_MessageReceivedFromBackground;
                 _appMediaPlayer.CurrentStateChanged -= BackgroundMediaPlayer_CurrentStateChanged;
                 _appMediaPlayer.CurrentStateChanged += BackgroundMediaPlayer_CurrentStateChanged;
                 RestorePlaybackUiState();
