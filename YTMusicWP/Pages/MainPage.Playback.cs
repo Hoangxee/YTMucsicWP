@@ -634,7 +634,7 @@ namespace YTMusicWP
             else SetPlayPauseIcon(false);
         }
 
-        private bool _showVideoSurface = true;
+        private bool _showVideoSurface = false;
         private bool _isFullscreenVideo = false;
         private bool _fullscreenLandscape = false;
         private bool _isFullscreenSliderManipulating = false;
