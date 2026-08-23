@@ -643,7 +643,7 @@ namespace YTMusicWP
 
         private async System.Threading.Tasks.Task HandoffVideoToBackgroundAsync()
         {
-            if (!VideoModeToggle.IsOn || _handoffUrls == null || currentTrack == null) return;
+            if (!VideoModeToggle.IsOn || currentTrack == null) return;
             MediaElement player = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
             if (player.Source == null) return;
             _videoWasPlayingBeforeSuspend = player.CurrentState == MediaElementState.Playing ||
@@ -652,6 +652,19 @@ namespace YTMusicWP
 
             _videoPositionBeforeSuspend = player.Position;
             _backgroundHandoffStarted = false;
+            if (_handoffUrls == null || _handoffUrls.Length == 0)
+            {
+                string audioUrl = "";
+                try { audioUrl = await InnerTubeClient.ResolveStreamUrlAsync(currentTrack.VideoId, false) ?? ""; }
+                catch { }
+                if (string.IsNullOrEmpty(audioUrl)) return;
+                _handoffUrls = new[] { audioUrl };
+                _handoffTitles = new[] { currentTrack.Title ?? "" };
+                _handoffArtists = new[] { currentTrack.ChannelName ?? "" };
+                _handoffVideoIds = new[] { currentTrack.VideoId ?? "" };
+                _handoffThumbnails = new[] { currentTrack.ThumbnailUrl ?? "" };
+                _handoffStartIndex = 0;
+            }
             var message = new ValueSet {
                 { "UpdatePlaylist", "" }, { "Urls", _handoffUrls }, { "Titles", _handoffTitles },
                 { "Artists", _handoffArtists }, { "VideoIds", _handoffVideoIds },
@@ -693,15 +706,28 @@ namespace YTMusicWP
                     player.CurrentState == MediaElementState.Opening;
                 _videoPositionBeforeSuspend = player.Position;
                 if (_videoWasPlayingBeforeSuspend) player.Pause();
+                var values = ApplicationData.Current.LocalSettings.Values;
+                values["VideoWasPlayingBeforeSuspend"] = _videoWasPlayingBeforeSuspend;
+                values["VideoPositionTicks"] = _videoPositionBeforeSuspend.Ticks;
             }
             catch { }
         }
 
         private async System.Threading.Tasks.Task ResumeSuspendedVideoAsync()
         {
-            if (!_showVideoSurface || !_videoWasPlayingBeforeSuspend) return;
+            if (!_showVideoSurface) return;
             try
             {
+                var values = ApplicationData.Current.LocalSettings.Values;
+                if (!_videoWasPlayingBeforeSuspend && values.ContainsKey("VideoWasPlayingBeforeSuspend"))
+                    _videoWasPlayingBeforeSuspend = (bool)values["VideoWasPlayingBeforeSuspend"];
+                if (_videoPositionBeforeSuspend == TimeSpan.Zero && values.ContainsKey("VideoPositionTicks"))
+                    _videoPositionBeforeSuspend = TimeSpan.FromTicks((long)values["VideoPositionTicks"]);
+                if (!_videoWasPlayingBeforeSuspend) return;
+
+                _pendingBackgroundPlaylist = null;
+                try { BackgroundMediaPlayer.SendMessageToBackground(new ValueSet { { "PausePlaybackMessage", "" } }); } catch { }
+                try { _appMediaPlayer.Pause(); } catch { }
                 MediaElement player = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
                 if (player.Source == null && currentTrack != null && !currentTrack.VideoId.StartsWith("LOCAL:"))
                 {
@@ -720,6 +746,7 @@ namespace YTMusicWP
             }
             catch { }
             _videoWasPlayingBeforeSuspend = false;
+            try { ApplicationData.Current.LocalSettings.Values["VideoWasPlayingBeforeSuspend"] = false; } catch { }
         }
 
         private static string FormatPlaybackTime(TimeSpan value)
@@ -778,6 +805,8 @@ namespace YTMusicWP
             }
 
             _showVideoSurface = true;
+            _pendingBackgroundPlaylist = null;
+            try { BackgroundMediaPlayer.SendMessageToBackground(new ValueSet { { "PausePlaybackMessage", "" } }); } catch { }
             ForegroundVideo.Visibility = Visibility.Visible;
             NowPlayingCoverRect.Visibility = Visibility.Collapsed;
             VideoSurfaceToggleBtn.Content = "IMAGE";
@@ -805,6 +834,7 @@ namespace YTMusicWP
                 var values = ApplicationData.Current.LocalSettings.Values;
                 values["RestoreNowPlaying"] = NowPlayingView.Visibility == Visibility.Visible;
                 values["RestoreImageMode"] = !_showVideoSurface;
+                values["PlaybackSurfaceMode"] = _showVideoSurface ? "Video" : "Image";
             }
             catch { }
         }
@@ -815,7 +845,9 @@ namespace YTMusicWP
             {
                 var values = ApplicationData.Current.LocalSettings.Values;
                 bool restoreNowPlaying = values.ContainsKey("RestoreNowPlaying") && (bool)values["RestoreNowPlaying"];
-                bool restoreImageMode = values.ContainsKey("RestoreImageMode") && (bool)values["RestoreImageMode"];
+                bool restoreImageMode = values.ContainsKey("PlaybackSurfaceMode")
+                    ? values["PlaybackSurfaceMode"].ToString() != "Video"
+                    : values.ContainsKey("RestoreImageMode") && (bool)values["RestoreImageMode"];
                 _showVideoSurface = !restoreImageMode;
 
                 if (currentTrack != null && VideoModeToggle.IsOn && !currentTrack.VideoId.StartsWith("LOCAL:"))

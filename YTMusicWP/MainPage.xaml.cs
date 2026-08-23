@@ -315,6 +315,7 @@ namespace YTMusicWP
 
             SyncBackgroundPlayer();
             RestorePlaybackUiState();
+            if (_showVideoSurface) await ResumeSuspendedVideoAsync();
 
             if (!IsInternetAvailable())
             {

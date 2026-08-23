@@ -103,6 +103,7 @@ namespace YTMusicWP
         private void MiniPlayer_Tapped(object sender, TappedRoutedEventArgs e)
         {
             NowPlayingView.Visibility = Visibility.Visible;
+            ApplicationData.Current.LocalSettings.Values["RestoreNowPlaying"] = true;
             if (this.Resources.ContainsKey("SlideUpStoryboard"))
             {
                 var storyboard = (Windows.UI.Xaml.Media.Animation.Storyboard)this.Resources["SlideUpStoryboard"];
@@ -119,6 +120,7 @@ namespace YTMusicWP
 
         private void CloseNowPlaying_Click(object sender, RoutedEventArgs e)
         {
+            ApplicationData.Current.LocalSettings.Values["RestoreNowPlaying"] = false;
             // Block SearchBox focus BEFORE any panel changes
             if (SearchBox != null) SearchBox.IsTabStop = false;
             

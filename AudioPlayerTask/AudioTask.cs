@@ -133,6 +133,15 @@ namespace AudioPlayerTask
             }
             else if (e.Data.ContainsKey("NextTrackMessage")) MoveNext();
             else if (e.Data.ContainsKey("PrevTrackMessage")) MovePrevious();
+            else if (e.Data.ContainsKey("PausePlaybackMessage"))
+            {
+                try
+                {
+                    _mediaPlayer.Pause();
+                    _systemControls.PlaybackStatus = MediaPlaybackStatus.Paused;
+                }
+                catch { }
+            }
             else if (e.Data.ContainsKey("StopPlaybackMessage"))
             {
                 try
