@@ -304,6 +304,7 @@ namespace YTMusicWP
                 {
                     try
                     {
+                        if (VideoModeToggle.IsOn && ForegroundVideo.Source != null) return;
                         SetPlayPauseIcon(sender.CurrentState == MediaPlayerState.Playing);
                     }
                     catch { }
@@ -504,11 +505,12 @@ namespace YTMusicWP
         {
             try
             {
-                if (VideoModeToggle.IsOn && ForegroundVideo.Visibility == Visibility.Visible)
+                if (VideoModeToggle.IsOn && ForegroundVideo.Source != null)
                 {
-                    bool wasPlaying = ForegroundVideo.CurrentState == MediaElementState.Playing;
-                    if (wasPlaying) ForegroundVideo.Pause();
-                    else ForegroundVideo.Play();
+                    MediaElement videoPlayer = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+                    bool wasPlaying = videoPlayer.CurrentState == MediaElementState.Playing;
+                    if (wasPlaying) videoPlayer.Pause();
+                    else videoPlayer.Play();
                     SetPlayPauseIcon(!wasPlaying);
                     return;
                 }
@@ -533,9 +535,10 @@ namespace YTMusicWP
         {
             try
             {
-                if (VideoModeToggle.IsOn && ForegroundVideo.Visibility == Visibility.Visible)
+                if (VideoModeToggle.IsOn && ForegroundVideo.Source != null)
                 {
-                    if (ForegroundVideo.Position.TotalSeconds > 3) { ForegroundVideo.Position = TimeSpan.Zero; ForegroundVideo.Play(); }
+                    MediaElement videoPlayer = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+                    if (videoPlayer.Position.TotalSeconds > 3) { videoPlayer.Position = TimeSpan.Zero; videoPlayer.Play(); }
                     else PlayAdjacentVideo(-1);
                     return;
                 }
@@ -556,7 +559,7 @@ namespace YTMusicWP
         {
             try
             {
-                if (VideoModeToggle.IsOn && ForegroundVideo.Visibility == Visibility.Visible)
+                if (VideoModeToggle.IsOn && ForegroundVideo.Source != null)
                 {
                     PlayAdjacentVideo(1);
                     return;
@@ -620,6 +623,7 @@ namespace YTMusicWP
 
         private bool _showVideoSurface = true;
         private bool _isFullscreenVideo = false;
+        private bool _fullscreenLandscape = false;
         private TimeSpan _fullscreenSeekPosition = TimeSpan.Zero;
 
         private static string FormatPlaybackTime(TimeSpan value)
@@ -656,6 +660,23 @@ namespace YTMusicWP
             FullscreenVideo.Play();
         }
 
+        private void VideoPlayer_CurrentStateChanged(object sender, RoutedEventArgs e)
+        {
+            var player = sender as MediaElement;
+            if (player == null) return;
+            if ((_isFullscreenVideo && player != FullscreenVideo) || (!_isFullscreenVideo && player != ForegroundVideo)) return;
+            if (player.CurrentState == MediaElementState.Playing) SetPlayPauseIcon(true);
+            else if (player.CurrentState == MediaElementState.Paused || player.CurrentState == MediaElementState.Stopped) SetPlayPauseIcon(false);
+        }
+
+        private void RotateFullscreenVideo_Click(object sender, RoutedEventArgs e)
+        {
+            _fullscreenLandscape = !_fullscreenLandscape;
+            Windows.Graphics.Display.DisplayInformation.AutoRotationPreferences = _fullscreenLandscape
+                ? Windows.Graphics.Display.DisplayOrientations.Landscape
+                : Windows.Graphics.Display.DisplayOrientations.Portrait;
+        }
+
         private void CloseFullscreenVideo_Click(object sender, RoutedEventArgs e)
         {
             if (!_isFullscreenVideo) return;
@@ -664,6 +685,8 @@ namespace YTMusicWP
             FullscreenVideo.Source = null;
             FullscreenVideoView.Visibility = Visibility.Collapsed;
             _isFullscreenVideo = false;
+            _fullscreenLandscape = false;
+            Windows.Graphics.Display.DisplayInformation.AutoRotationPreferences = Windows.Graphics.Display.DisplayOrientations.Portrait;
             ForegroundVideo.Position = position;
             ForegroundVideo.Play();
         }
