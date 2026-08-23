@@ -132,7 +132,7 @@ namespace YTMusicWP
                 CrossfadeSlider.Value = crossfade;
                 CrossfadeValueText.Text = crossfade + "s";
                 AutoplayToggle.IsOn = SafeGetBool(settings, "Autoplay", true);
-                VideoModeToggle.IsOn = SafeGetBool(settings, "VideoMode", false);
+                VideoModeToggle.IsOn = SafeGetBool(settings, "VideoMode", true);
                 GaplessToggle.IsOn = SafeGetBool(settings, "GaplessPlayback", true);
                 NormalizeVolumeToggle.IsOn = SafeGetBool(settings, "NormalizeVolume", false);
 

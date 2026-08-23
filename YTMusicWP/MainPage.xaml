@@ -1349,7 +1349,7 @@
                                     <TextBlock Text="Watch Video" Foreground="White" FontSize="15" FontFamily="{StaticResource MontserratSemiBold}"/>
                                     <TextBlock Text="Highest compatible quality; auto-advance queue" Foreground="#555" FontSize="11" Margin="0,2,0,0"/>
                                 </StackPanel>
-                                <ToggleSwitch x:Name="VideoModeToggle" Grid.Column="1" IsOn="False" OnContent="" OffContent="" VerticalAlignment="Center"/>
+                                <ToggleSwitch x:Name="VideoModeToggle" Grid.Column="1" IsOn="True" OnContent="" OffContent="" VerticalAlignment="Center"/>
                             </Grid>
                             <Rectangle Height="1" Fill="#252525" Margin="0,8,0,8"/>
 
