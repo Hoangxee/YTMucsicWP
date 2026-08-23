@@ -2092,7 +2092,7 @@
                             </Rectangle>
                             <MediaElement x:Name="ForegroundVideo" Width="300" Height="300" Visibility="Collapsed"
                                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                                          AutoPlay="True" Stretch="UniformToFill" MediaOpened="ForegroundVideo_MediaOpened" MediaEnded="ForegroundVideo_MediaEnded"
+                                          AutoPlay="True" Stretch="UniformToFill" MediaEnded="ForegroundVideo_MediaEnded"
                                           MediaFailed="ForegroundVideo_MediaFailed" CurrentStateChanged="VideoPlayer_CurrentStateChanged"/>
                             <Button x:Name="VideoSurfaceToggleBtn" Content="IMAGE" Click="VideoSurfaceToggle_Click"
                                     Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Top"
