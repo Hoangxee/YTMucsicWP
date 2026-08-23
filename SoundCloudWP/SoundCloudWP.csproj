@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="14.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">ARM</Platform>
+    <ProjectGuid>{7D417A5A-2455-4D08-9D55-A028EABCB305}</ProjectGuid>
+    <OutputType>AppContainerExe</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>SoundCloudWP</RootNamespace>
+    <AssemblyName>SoundCloudWP</AssemblyName>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <TargetPlatformVersion>8.1</TargetPlatformVersion>
+    <MinimumVisualStudioVersion>12</MinimumVisualStudioVersion>
+    <FileAlignment>512</FileAlignment>
+    <ProjectTypeGuids>{76F1466A-8B6D-4E39-A767-685A06062A39};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
+    <AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
+    <AppxBundlePlatforms>arm</AppxBundlePlatforms>
+    <AppxSymbolPackageEnabled>False</AppxSymbolPackageEnabled>
+    <AppxBundle>Never</AppxBundle>
+    <PackageCertificateKeyFile>..\YTMusicWP\YTMusicWP_TemporaryKey.pfx</PackageCertificateKeyFile>
+    <PackageCertificateThumbprint>B83810F5C50DDA285335B845348961A25EB91CBE</PackageCertificateThumbprint>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|ARM'">
+    <DebugSymbols>true</DebugSymbols><OutputPath>bin\ARM\Debug\</OutputPath><DefineConstants>DEBUG;TRACE;NETFX_CORE;WINDOWS_PHONE_APP</DefineConstants><DebugType>full</DebugType><PlatformTarget>ARM</PlatformTarget><Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|ARM'">
+    <OutputPath>bin\ARM\Release\</OutputPath><DefineConstants>TRACE;NETFX_CORE;WINDOWS_PHONE_APP</DefineConstants><Optimize>true</Optimize><DebugType>pdbonly</DebugType><PlatformTarget>ARM</PlatformTarget><Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
+    <DebugSymbols>true</DebugSymbols><OutputPath>bin\x86\Debug\</OutputPath><DefineConstants>DEBUG;TRACE;NETFX_CORE;WINDOWS_PHONE_APP</DefineConstants><DebugType>full</DebugType><PlatformTarget>x86</PlatformTarget><Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
+    <OutputPath>bin\x86\Release\</OutputPath><DefineConstants>TRACE;NETFX_CORE;WINDOWS_PHONE_APP</DefineConstants><Optimize>true</Optimize><DebugType>pdbonly</DebugType><PlatformTarget>x86</PlatformTarget><Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="App.xaml.cs"><DependentUpon>App.xaml</DependentUpon></Compile>
+    <Compile Include="MainPage.xaml.cs"><DependentUpon>MainPage.xaml</DependentUpon></Compile>
+    <Compile Include="Models\SoundCloudTrack.cs" />
+    <Compile Include="Services\SoundCloudClient.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <AppxManifest Include="Package.appxmanifest"><SubType>Designer</SubType></AppxManifest>
+    <ApplicationDefinition Include="App.xaml"><Generator>MSBuild:Compile</Generator><SubType>Designer</SubType></ApplicationDefinition>
+    <Page Include="MainPage.xaml"><Generator>MSBuild:Compile</Generator><SubType>Designer</SubType></Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\YTMusicWP\Assets\Logo.scale-100.png"><Link>Assets\Logo.scale-100.png</Link></Content>
+    <Content Include="..\YTMusicWP\Assets\Logo.scale-140.png"><Link>Assets\Logo.scale-140.png</Link></Content>
+    <Content Include="..\YTMusicWP\Assets\Logo.scale-240.png"><Link>Assets\Logo.scale-240.png</Link></Content>
+    <Content Include="..\YTMusicWP\Assets\SmallLogo.scale-100.png"><Link>Assets\SmallLogo.scale-100.png</Link></Content>
+    <Content Include="..\YTMusicWP\Assets\SmallLogo.scale-140.png"><Link>Assets\SmallLogo.scale-140.png</Link></Content>
+    <Content Include="..\YTMusicWP\Assets\SmallLogo.scale-240.png"><Link>Assets\SmallLogo.scale-240.png</Link></Content>
+    <Content Include="..\YTMusicWP\Assets\StoreLogo.scale-100.png"><Link>Assets\StoreLogo.scale-100.png</Link></Content>
+    <Content Include="..\YTMusicWP\Assets\StoreLogo.scale-140.png"><Link>Assets\StoreLogo.scale-140.png</Link></Content>
+    <Content Include="..\YTMusicWP\Assets\StoreLogo.scale-240.png"><Link>Assets\StoreLogo.scale-240.png</Link></Content>
+    <Content Include="..\YTMusicWP\Assets\SplashScreen.scale-100.png"><Link>Assets\SplashScreen.scale-100.png</Link></Content>
+    <Content Include="..\YTMusicWP\Assets\SplashScreen.scale-140.png"><Link>Assets\SplashScreen.scale-140.png</Link></Content>
+    <Content Include="..\YTMusicWP\Assets\SplashScreen.scale-240.png"><Link>Assets\SplashScreen.scale-240.png</Link></Content>
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Newtonsoft.Json"><HintPath>..\packages\Newtonsoft.Json.13.0.4\lib\netstandard1.0\Newtonsoft.Json.dll</HintPath><Private>True</Private></Reference>
+  </ItemGroup>
+  <PropertyGroup Condition=" '$(VisualStudioVersion)' == '' or '$(VisualStudioVersion)' &lt; '12.0' "><VisualStudioVersion>12.0</VisualStudioVersion></PropertyGroup>
+  <PropertyGroup Condition=" '$(TargetPlatformIdentifier)' == '' "><TargetPlatformIdentifier>WindowsPhoneApp</TargetPlatformIdentifier></PropertyGroup>
+  <Import Project="$(MSBuildExtensionsPath)\Microsoft\WindowsXaml\v$(VisualStudioVersion)\Microsoft.Windows.UI.Xaml.CSharp.targets" />
+</Project>
