@@ -214,6 +214,7 @@ namespace YTMusicWP
         {
             try
             {
+                _videoTransitionGeneration++;
                 SavePlaybackUiState();
                 PauseVideoForSuspension();
                 if (_bgTimer != null)

@@ -17,6 +17,8 @@ namespace YTMusicWP
     public sealed partial class MainPage
     {
         private ValueSet _pendingBackgroundPlaylist;
+        private int _playTrackRequestGeneration;
+        private int _videoTransitionGeneration;
 
         private void SendPlaylistToBackground(ValueSet message)
         {
@@ -51,6 +53,15 @@ namespace YTMusicWP
                 return;
             }
 
+            int playRequestGeneration = ++_playTrackRequestGeneration;
+            _videoTransitionGeneration++;
+            _videoPositionBeforeSuspend = TimeSpan.Zero;
+            _pendingVideoStartPosition = TimeSpan.Zero;
+            _showVideoSurface = false;
+            _pendingBackgroundPlaylist = null;
+            try { ApplicationData.Current.LocalSettings.Values["PlaybackSurfaceMode"] = "Image"; } catch { }
+            SendForegroundVideoMode(false, false);
+
             try
             {
                 if (_appMediaPlayer == null || _appMediaPlayer.CurrentState == MediaPlayerState.Closed)
@@ -64,7 +75,6 @@ namespace YTMusicWP
             catch { }
             try { ForegroundVideo.Stop(); } catch { }
             ForegroundVideo.Source = null;
-            _showVideoSurface = false;
 
             if (!track.VideoId.StartsWith("LOCAL:") && !IsInternetAvailable()) { ShowToast("No Internet connection"); return; }
 
@@ -144,6 +154,12 @@ namespace YTMusicWP
                 catch { resolvedUrl = ""; }
             }
 
+            if (playRequestGeneration != _playTrackRequestGeneration ||
+                currentTrack == null || currentTrack.VideoId != track.VideoId)
+            {
+                return;
+            }
+
             // OPTIMIZATION: Giới hạn mảng gửi sang BackgroundTask để tránh lỗi IPC Payload quá tải (RAM 512MB)
             int maxItems = 100;
             int half = maxItems / 2;
@@ -187,18 +203,21 @@ namespace YTMusicWP
             _handoffThumbnails = thumbnails;
             _handoffStartIndex = relativeStartIndex;
 
-            ForegroundVideo.Visibility = Visibility.Collapsed;
-            NowPlayingCoverRect.Visibility = Visibility.Visible;
-            VideoSurfaceToggleBtn.Visibility = VideoModeToggle.IsOn && !track.VideoId.StartsWith("LOCAL:")
-                ? Visibility.Visible : Visibility.Collapsed;
-            VideoSurfaceToggleBtn.Content = "VIDEO";
-            VideoFullscreenBtn.Visibility = Visibility.Collapsed;
+            if (!_showVideoSurface && !IsVideoSurfaceModeRequested())
+            {
+                ForegroundVideo.Visibility = Visibility.Collapsed;
+                NowPlayingCoverRect.Visibility = Visibility.Visible;
+                VideoSurfaceToggleBtn.Visibility = VideoModeToggle.IsOn && !track.VideoId.StartsWith("LOCAL:")
+                    ? Visibility.Visible : Visibility.Collapsed;
+                VideoSurfaceToggleBtn.Content = "VIDEO";
+                VideoFullscreenBtn.Visibility = Visibility.Collapsed;
 
-            var message = new ValueSet {
-                { "UpdatePlaylist", "" }, { "Urls", urls }, { "Titles", titles }, { "Artists", artists },
-                { "VideoIds", videoIds }, { "Thumbnails", thumbnails }, { "StartIndex", relativeStartIndex }, { "FastUrl", urls[relativeStartIndex] }
-            };
-            SendPlaylistToBackground(message);
+                var message = new ValueSet {
+                    { "UpdatePlaylist", "" }, { "Urls", urls }, { "Titles", titles }, { "Artists", artists },
+                    { "VideoIds", videoIds }, { "Thumbnails", thumbnails }, { "StartIndex", relativeStartIndex }, { "FastUrl", urls[relativeStartIndex] }
+                };
+                SendPlaylistToBackground(message);
+            }
         }
 
         private void SyncQueueToBackground()
@@ -516,17 +535,144 @@ namespace YTMusicWP
             catch { }
         }
 
+        private MediaElement GetActiveVideoPlayer()
+        {
+            if (_isFullscreenVideo && FullscreenVideoView.Visibility == Visibility.Visible &&
+                FullscreenVideo.Source != null)
+            {
+                return FullscreenVideo;
+            }
+            return ForegroundVideo;
+        }
+
+        private static bool IsVideoPlaybackActive(MediaElement player)
+        {
+            return player != null &&
+                (player.CurrentState == MediaElementState.Playing ||
+                 player.CurrentState == MediaElementState.Buffering ||
+                 player.CurrentState == MediaElementState.Opening);
+        }
+
+        private bool IsVideoSurfaceModeRequested()
+        {
+            try
+            {
+                var values = ApplicationData.Current.LocalSettings.Values;
+                return values.ContainsKey("PlaybackSurfaceMode") &&
+                    values["PlaybackSurfaceMode"] != null &&
+                    values["PlaybackSurfaceMode"].ToString() == "Video";
+            }
+            catch
+            {
+                return _showVideoSurface;
+            }
+        }
+
+        private TimeSpan GetPositionForVideoSwitch()
+        {
+            TimeSpan fallback = _videoPositionBeforeSuspend;
+            try
+            {
+                if (ForegroundVideo.Source != null && ForegroundVideo.Position > fallback)
+                    fallback = ForegroundVideo.Position;
+            }
+            catch { }
+
+            try
+            {
+                if (_appMediaPlayer == null || currentTrack == null) return fallback;
+                var values = ApplicationData.Current.LocalSettings.Values;
+                string backgroundVideoId = values.ContainsKey("CurrentVideoId")
+                    ? values["CurrentVideoId"].ToString() : "";
+                MediaPlayerState state = _appMediaPlayer.CurrentState;
+                if (backgroundVideoId == currentTrack.VideoId &&
+                    (state == MediaPlayerState.Playing || state == MediaPlayerState.Paused))
+                {
+                    return _appMediaPlayer.Position;
+                }
+            }
+            catch { }
+            return fallback;
+        }
+
+        private void SendForegroundVideoMode(bool active, bool isPlaying)
+        {
+            try
+            {
+                BackgroundMediaPlayer.SendMessageToBackground(new ValueSet {
+                    { "SetForegroundVideoMode", active },
+                    { "VideoIsPlaying", isPlaying }
+                });
+            }
+            catch { }
+        }
+
+        private void SendVideoPlaybackState(bool isPlaying)
+        {
+            try
+            {
+                BackgroundMediaPlayer.SendMessageToBackground(
+                    new ValueSet { { "VideoPlaybackState", isPlaying } });
+            }
+            catch { }
+        }
+
+        private void HandleVideoTransportCommand(string command)
+        {
+            if (!_showVideoSurface) return;
+            if (command == "Stop")
+            {
+                StopPlaybackButton_Click(null, null);
+                return;
+            }
+
+            MediaElement videoPlayer = GetActiveVideoPlayer();
+            if (videoPlayer == null || videoPlayer.Source == null) return;
+
+            if (command == "Next")
+            {
+                PlayAdjacentVideo(1);
+                return;
+            }
+            if (command == "Previous")
+            {
+                if (videoPlayer.Position.TotalSeconds > 3)
+                {
+                    videoPlayer.Position = TimeSpan.Zero;
+                    videoPlayer.Play();
+                    SetPlayPauseIcon(true);
+                    SendVideoPlaybackState(true);
+                }
+                else
+                {
+                    PlayAdjacentVideo(-1);
+                }
+                return;
+            }
+
+            bool shouldPause = command == "Pause" ||
+                (command == "Toggle" && IsVideoPlaybackActive(videoPlayer));
+            if (shouldPause)
+            {
+                videoPlayer.Pause();
+                SetPlayPauseIcon(false);
+                SendVideoPlaybackState(false);
+            }
+            else if (command == "Play" || command == "Toggle")
+            {
+                videoPlayer.Play();
+                SetPlayPauseIcon(true);
+                SendVideoPlaybackState(true);
+            }
+        }
+
         private void PlayPauseButton_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                if (_showVideoSurface && ForegroundVideo.Source != null)
+                if (_showVideoSurface && GetActiveVideoPlayer().Source != null)
                 {
-                    MediaElement videoPlayer = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
-                    bool wasPlaying = videoPlayer.CurrentState == MediaElementState.Playing;
-                    if (wasPlaying) videoPlayer.Pause();
-                    else videoPlayer.Play();
-                    SetPlayPauseIcon(!wasPlaying);
+                    HandleVideoTransportCommand("Toggle");
                     return;
                 }
                 // FIX: Nhận diện OS đã tự đóng Background Task (State = Closed) để ra lệnh phát lại từ đầu
@@ -550,11 +696,9 @@ namespace YTMusicWP
         {
             try
             {
-                if (_showVideoSurface && ForegroundVideo.Source != null)
+                if (_showVideoSurface && GetActiveVideoPlayer().Source != null)
                 {
-                    MediaElement videoPlayer = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
-                    if (videoPlayer.Position.TotalSeconds > 3) { videoPlayer.Position = TimeSpan.Zero; videoPlayer.Play(); }
-                    else PlayAdjacentVideo(-1);
+                    HandleVideoTransportCommand("Previous");
                     return;
                 }
                 if (_appMediaPlayer.Position.TotalSeconds > 3)
@@ -574,9 +718,9 @@ namespace YTMusicWP
         {
             try
             {
-                if (_showVideoSurface && ForegroundVideo.Source != null)
+                if (_showVideoSurface && GetActiveVideoPlayer().Source != null)
                 {
-                    PlayAdjacentVideo(1);
+                    HandleVideoTransportCommand("Next");
                     return;
                 }
                 // Always send NextTrackMessage — AudioTask handles Closed state internally
@@ -591,6 +735,12 @@ namespace YTMusicWP
 
         private void StopPlaybackButton_Click(object sender, RoutedEventArgs e)
         {
+            _playTrackRequestGeneration++;
+            _videoTransitionGeneration++;
+            _showVideoSurface = false;
+            _pendingBackgroundPlaylist = null;
+            try { ApplicationData.Current.LocalSettings.Values["PlaybackSurfaceMode"] = "Image"; } catch { }
+            SendForegroundVideoMode(false, false);
             try
             {
                 if (_isFullscreenVideo) CloseFullscreenVideo_Click(null, null);
@@ -626,12 +776,21 @@ namespace YTMusicWP
         {
             ShowToast("Video playback failed");
             SetPlayPauseIcon(false);
+            SendVideoPlaybackState(false);
         }
 
         private void PlayAdjacentVideo(int offset)
         {
             if (currentTrack == null || currentQueueTracks.Count == 0) return;
-            int index = currentQueueTracks.IndexOf(currentTrack);
+            int index = -1;
+            for (int i = 0; i < currentQueueTracks.Count; i++)
+            {
+                if (currentQueueTracks[i].VideoId == currentTrack.VideoId)
+                {
+                    index = i;
+                    break;
+                }
+            }
             if (index < 0) index = 0;
             int next = index + offset;
             if (next >= 0 && next < currentQueueTracks.Count) PlayTrack(currentQueueTracks[next]);
@@ -656,6 +815,7 @@ namespace YTMusicWP
         private void HandoffVideoToBackground()
         {
             if (currentTrack == null) return;
+            _videoTransitionGeneration++;
             YouTubeTrack handoffTrack = currentTrack;
             string handoffVideoId = handoffTrack.VideoId ?? "";
             MediaElement player = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
@@ -675,14 +835,15 @@ namespace YTMusicWP
             catch { }
 
             _videoPositionBeforeSuspend = handoffPosition;
+            _showVideoSurface = false;
+            try { ApplicationData.Current.LocalSettings.Values["PlaybackSurfaceMode"] = "Image"; } catch { }
+            SendForegroundVideoMode(false, false);
             try { if (player.Source != null) player.Pause(); } catch { }
 
-            _showVideoSurface = false;
             ForegroundVideo.Visibility = Visibility.Collapsed;
             NowPlayingCoverRect.Visibility = Visibility.Visible;
             VideoSurfaceToggleBtn.Content = "VIDEO";
             VideoFullscreenBtn.Visibility = Visibility.Collapsed;
-            try { ApplicationData.Current.LocalSettings.Values["PlaybackSurfaceMode"] = "Image"; } catch { }
             _videoWasPlayingBeforeSuspend = false;
             SetPlayPauseIcon(true);
 
@@ -752,6 +913,7 @@ namespace YTMusicWP
                     player.CurrentState == MediaElementState.Opening;
                 _videoPositionBeforeSuspend = player.Position;
                 if (_videoWasPlayingBeforeSuspend) player.Pause();
+                SendVideoPlaybackState(false);
                 var values = ApplicationData.Current.LocalSettings.Values;
                 values["VideoWasPlayingBeforeSuspend"] = _videoWasPlayingBeforeSuspend;
                 values["VideoPositionTicks"] = _videoPositionBeforeSuspend.Ticks;
@@ -772,15 +934,21 @@ namespace YTMusicWP
                 if (!_videoWasPlayingBeforeSuspend) return;
 
                 _pendingBackgroundPlaylist = null;
-                try { BackgroundMediaPlayer.SendMessageToBackground(new ValueSet { { "PausePlaybackMessage", "" } }); } catch { }
+                SendForegroundVideoMode(true, true);
                 try { _appMediaPlayer.Pause(); } catch { }
                 MediaElement player = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
                 if (player.Source == null && currentTrack != null && !currentTrack.VideoId.StartsWith("LOCAL:"))
                 {
                     string videoUrl = await InnerTubeClient.ResolveStreamUrlAsync(currentTrack.VideoId, true) ?? "";
-                    if (!_showVideoSurface || string.IsNullOrEmpty(videoUrl)) return;
+                    if (!_showVideoSurface || string.IsNullOrEmpty(videoUrl))
+                    {
+                        SendVideoPlaybackState(false);
+                        return;
+                    }
                     _pendingVideoStartPosition = _videoPositionBeforeSuspend;
                     player.Source = new Uri(videoUrl, UriKind.Absolute);
+                    _videoWasPlayingBeforeSuspend = false;
+                    try { ApplicationData.Current.LocalSettings.Values["VideoWasPlayingBeforeSuspend"] = false; } catch { }
                     return;
                 }
                 if (player.Source != null)
@@ -788,6 +956,7 @@ namespace YTMusicWP
                     player.Position = _videoPositionBeforeSuspend;
                     player.Play();
                     SetPlayPauseIcon(true);
+                    SendVideoPlaybackState(true);
                 }
             }
             catch { }
@@ -812,37 +981,58 @@ namespace YTMusicWP
 
             if (!VideoModeToggle.IsOn) return;
 
+            int videoTransitionGeneration = ++_videoTransitionGeneration;
+            string requestedVideoId = currentTrack.VideoId;
+            TimeSpan position = GetPositionForVideoSwitch();
+            string videoUrl = null;
             if (ForegroundVideo.Source == null)
             {
-                TimeSpan position = TimeSpan.Zero;
-                try { position = _appMediaPlayer.Position; } catch { }
-                string videoUrl = "";
+                videoUrl = "";
                 try { videoUrl = await InnerTubeClient.ResolveStreamUrlAsync(currentTrack.VideoId, true) ?? ""; }
                 catch { }
+                if (videoTransitionGeneration != _videoTransitionGeneration ||
+                    currentTrack == null || currentTrack.VideoId != requestedVideoId ||
+                    !VideoModeToggle.IsOn)
+                {
+                    return;
+                }
                 if (string.IsNullOrEmpty(videoUrl)) { ShowToast("Unable to load video"); return; }
-                try
-                {
-                    _pendingVideoStartPosition = position;
-                    ForegroundVideo.Source = new Uri(videoUrl, UriKind.Absolute);
-                }
-                catch { }
-            }
-            else
-            {
-                try
-                {
-                    TimeSpan position = _appMediaPlayer.Position;
-                    ForegroundVideo.Position = position;
-                    ForegroundVideo.Play();
-                    _appMediaPlayer.Pause();
-                }
-                catch { }
             }
 
             _showVideoSurface = true;
             ApplicationData.Current.LocalSettings.Values["PlaybackSurfaceMode"] = "Video";
             _pendingBackgroundPlaylist = null;
-            try { BackgroundMediaPlayer.SendMessageToBackground(new ValueSet { { "PausePlaybackMessage", "" } }); } catch { }
+            SendForegroundVideoMode(true, true);
+            try { _appMediaPlayer.Pause(); } catch { }
+
+            if (ForegroundVideo.Source == null)
+            {
+                try
+                {
+                    _pendingVideoStartPosition = position;
+                    ForegroundVideo.Source = new Uri(videoUrl, UriKind.Absolute);
+                }
+                catch
+                {
+                    _showVideoSurface = false;
+                    ApplicationData.Current.LocalSettings.Values["PlaybackSurfaceMode"] = "Image";
+                    SendForegroundVideoMode(false, false);
+                    try { _appMediaPlayer.Play(); } catch { }
+                    ShowToast("Unable to load video");
+                    return;
+                }
+            }
+            else
+            {
+                try
+                {
+                    ForegroundVideo.Position = position;
+                    ForegroundVideo.Play();
+                    SendVideoPlaybackState(true);
+                }
+                catch { }
+            }
+
             ForegroundVideo.Visibility = Visibility.Visible;
             NowPlayingCoverRect.Visibility = Visibility.Collapsed;
             VideoSurfaceToggleBtn.Content = "IMAGE";
@@ -860,6 +1050,7 @@ namespace YTMusicWP
                 ForegroundVideo.Play();
                 _appMediaPlayer.Pause();
                 SetPlayPauseIcon(true);
+                SendVideoPlaybackState(true);
             }
             catch { }
         }
@@ -988,10 +1179,18 @@ namespace YTMusicWP
         private void VideoPlayer_CurrentStateChanged(object sender, RoutedEventArgs e)
         {
             var player = sender as MediaElement;
-            if (player == null) return;
+            if (player == null || !_showVideoSurface) return;
             if ((_isFullscreenVideo && player != FullscreenVideo) || (!_isFullscreenVideo && player != ForegroundVideo)) return;
-            if (player.CurrentState == MediaElementState.Playing) SetPlayPauseIcon(true);
-            else if (player.CurrentState == MediaElementState.Paused || player.CurrentState == MediaElementState.Stopped) SetPlayPauseIcon(false);
+            if (IsVideoPlaybackActive(player))
+            {
+                SetPlayPauseIcon(true);
+                SendVideoPlaybackState(true);
+            }
+            else if (player.CurrentState == MediaElementState.Paused || player.CurrentState == MediaElementState.Stopped)
+            {
+                SetPlayPauseIcon(false);
+                SendVideoPlaybackState(false);
+            }
         }
 
         private void RotateFullscreenVideo_Click(object sender, RoutedEventArgs e)
@@ -1082,6 +1281,13 @@ namespace YTMusicWP
 
                     if (!string.IsNullOrEmpty(vid))
                     {
+                        if (!_showVideoSurface && currentTrack != null && currentTrack.VideoId != vid)
+                        {
+                            try { ForegroundVideo.Stop(); } catch { }
+                            ForegroundVideo.Source = null;
+                            _videoPositionBeforeSuspend = TimeSpan.Zero;
+                            _pendingVideoStartPosition = TimeSpan.Zero;
+                        }
                         currentTrack = new YouTubeTrack { VideoId = vid, Title = title, ChannelName = artist, ThumbnailUrl = thumb };
                         bool isFav = favoriteTracks.Any(t => t.VideoId == vid);
                         BigHeartBtn.Content = isFav ? "♥" : "♡";
@@ -1134,7 +1340,26 @@ namespace YTMusicWP
 
         private async void BackgroundMediaPlayer_MessageReceivedFromBackground(object sender, MediaPlayerDataReceivedEventArgs e)
         {
-            if (e.Data.ContainsKey("BackgroundReady") && _pendingBackgroundPlaylist != null)
+            if (e.Data.ContainsKey("VideoTransportCommand"))
+            {
+                string command = e.Data["VideoTransportCommand"].ToString();
+                await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+                {
+                    HandleVideoTransportCommand(command);
+                });
+                return;
+            }
+
+            if (e.Data.ContainsKey("BackgroundReady") && _showVideoSurface &&
+                IsVideoSurfaceModeRequested())
+            {
+                MediaElement activeVideo = GetActiveVideoPlayer();
+                SendForegroundVideoMode(true,
+                    activeVideo != null && activeVideo.Source != null &&
+                    IsVideoPlaybackActive(activeVideo));
+            }
+            else if (e.Data.ContainsKey("BackgroundReady") && _pendingBackgroundPlaylist != null &&
+                !_showVideoSurface && !IsVideoSurfaceModeRequested())
             {
                 ValueSet pendingPlaylist = _pendingBackgroundPlaylist;
                 try
@@ -1194,6 +1419,13 @@ namespace YTMusicWP
 
                     if (!string.IsNullOrEmpty(vid))
                     {
+                        if (!_showVideoSurface && currentTrack != null && currentTrack.VideoId != vid)
+                        {
+                            try { ForegroundVideo.Stop(); } catch { }
+                            ForegroundVideo.Source = null;
+                            _videoPositionBeforeSuspend = TimeSpan.Zero;
+                            _pendingVideoStartPosition = TimeSpan.Zero;
+                        }
                         currentTrack = new YouTubeTrack { VideoId = vid, Title = title, ChannelName = artist, ThumbnailUrl = thumb };
 
                         bool isFav = favoriteTracks.Any(t => t.VideoId == vid);

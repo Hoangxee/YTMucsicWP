@@ -36,6 +36,9 @@ namespace AudioPlayerTask
         private string _resolvedUrl = null;
         private bool _innerTubeAttempted = false;
         private TimeSpan _pendingStartPosition = TimeSpan.Zero;
+        private int _playbackGeneration = 0;
+        private bool _foregroundVideoMode = false;
+        private bool _foregroundVideoPlaying = false;
 
         // Tối đa 4 lần retry: Stream URL (2 lần) → Render /api/play (2 lần)
         private const int MAX_RETRIES = 4;
@@ -54,6 +57,9 @@ namespace AudioPlayerTask
             _systemControls.IsPreviousEnabled = true;
 
             _mediaPlayer = BackgroundMediaPlayer.Current;
+            _foregroundVideoMode = IsForegroundVideoMode();
+            // A foreground MediaElement cannot still be playing when this task is cold-started.
+            _foregroundVideoPlaying = false;
             _mediaPlayer.MediaEnded += MediaPlayer_MediaEnded;
             _mediaPlayer.MediaFailed += MediaPlayer_MediaFailed;
             _mediaPlayer.MediaOpened += MediaPlayer_MediaOpened;
@@ -89,8 +95,39 @@ namespace AudioPlayerTask
             {
                 try { BackgroundMediaPlayer.SendMessageToForeground(new ValueSet { { "BackgroundReady", "" } }); } catch { }
             }
+            else if (e.Data.ContainsKey("SetForegroundVideoMode"))
+            {
+                bool requestedVideoMode = (bool)e.Data["SetForegroundVideoMode"];
+                if (requestedVideoMode != IsForegroundVideoMode()) return;
+                _foregroundVideoMode = requestedVideoMode;
+                _foregroundVideoPlaying = e.Data.ContainsKey("VideoIsPlaying") && (bool)e.Data["VideoIsPlaying"];
+                _playbackGeneration++;
+                StopCrossfadeMonitor();
+                if (_foregroundVideoMode)
+                {
+                    try { _mediaPlayer.Pause(); } catch { }
+                    _systemControls.PlaybackStatus = _foregroundVideoPlaying
+                        ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused;
+                }
+                else
+                {
+                    _systemControls.PlaybackStatus = _mediaPlayer.CurrentState == MediaPlayerState.Playing
+                        ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused;
+                }
+            }
+            else if (e.Data.ContainsKey("VideoPlaybackState"))
+            {
+                if (IsForegroundVideoMode())
+                {
+                    _foregroundVideoMode = true;
+                    _foregroundVideoPlaying = (bool)e.Data["VideoPlaybackState"];
+                    _systemControls.PlaybackStatus = _foregroundVideoPlaying
+                        ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused;
+                }
+            }
             else if (e.Data.ContainsKey("UpdatePlaylist"))
             {
+                if (IsForegroundVideoMode()) return;
                 _systemControls.IsEnabled = true;
                 _systemControls.IsPlayEnabled = true;
                 _systemControls.IsPauseEnabled = true;
@@ -143,6 +180,7 @@ namespace AudioPlayerTask
             {
                 try
                 {
+                    _playbackGeneration++;
                     _mediaPlayer.Pause();
                     _systemControls.PlaybackStatus = MediaPlaybackStatus.Paused;
                 }
@@ -152,6 +190,7 @@ namespace AudioPlayerTask
             {
                 try
                 {
+                    _playbackGeneration++;
                     Windows.Storage.ApplicationData.Current.LocalSettings.Values["BackgroundWasPlaying"] = false;
                     StopCrossfadeMonitor();
                     _mediaPlayer.Pause();
@@ -172,6 +211,26 @@ namespace AudioPlayerTask
                 }
                 catch { }
             }
+        }
+
+        private bool IsForegroundVideoMode()
+        {
+            try
+            {
+                var values = Windows.Storage.ApplicationData.Current.LocalSettings.Values;
+                return values.ContainsKey("PlaybackSurfaceMode") &&
+                    values["PlaybackSurfaceMode"] != null &&
+                    values["PlaybackSurfaceMode"].ToString() == "Video";
+            }
+            catch
+            {
+                return _foregroundVideoMode;
+            }
+        }
+
+        private bool CanStartBackgroundPlayback(int generation)
+        {
+            return generation == _playbackGeneration && !IsForegroundVideoMode();
         }
 
         private void ResetRetryState()
@@ -487,14 +546,17 @@ namespace AudioPlayerTask
         // ==========================================
         private async void StartPlaybackAsync()
         {
-            if (_currentTrackIndex < 0 || _currentTrackIndex >= _trackList.Count) return;
+            int generation = ++_playbackGeneration;
+            if (!CanStartBackgroundPlayback(generation)) return;
+            if (_currentTrackIndex < 0 || _currentTrackIndex >= _trackList.Count ||
+                _currentTrackIndex >= _videoIdList.Count) return;
 
             string vidId = _videoIdList[_currentTrackIndex];
 
             // Offline track → phát trực tiếp
             if (vidId.StartsWith("LOCAL:"))
             {
-                PlayUrl(_trackList[_currentTrackIndex], vidId);
+                PlayUrl(_trackList[_currentTrackIndex], vidId, generation);
                 return;
             }
 
@@ -503,8 +565,10 @@ namespace AudioPlayerTask
             {
                 try
                 {
+                    if (!CanStartBackgroundPlayback(generation)) return;
                     _mediaPlayer.Position = _pendingStartPosition > TimeSpan.Zero ? _pendingStartPosition : TimeSpan.Zero;
                     _pendingStartPosition = TimeSpan.Zero;
+                    if (!CanStartBackgroundPlayback(generation)) return;
                     _mediaPlayer.Play();
                     _systemControls.PlaybackStatus = MediaPlaybackStatus.Playing;
                     UpdateSystemMediaControls();
@@ -518,7 +582,7 @@ namespace AudioPlayerTask
             {
                 string url = _resolvedUrl;
                 _resolvedUrl = null;
-                PlayUrl(url, vidId);
+                PlayUrl(url, vidId, generation);
                 return;
             }
 
@@ -528,10 +592,11 @@ namespace AudioPlayerTask
                 UpdateSystemMediaControls();
 
                 string directUrl = await ResolveViaInnerTubeDirectAsync(vidId);
+                if (!CanStartBackgroundPlayback(generation)) return;
                 if (!string.IsNullOrEmpty(directUrl))
                 {
                     directUrl = PrepareStreamUrl(directUrl);
-                    PlayUrl(directUrl, vidId);
+                    PlayUrl(directUrl, vidId, generation);
                     return;
                 }
             }
@@ -542,8 +607,9 @@ namespace AudioPlayerTask
             {
                 fallbackUrl = await ResolveViaInnerTubeDirectAsync(vidId);
             }
+            if (!CanStartBackgroundPlayback(generation)) return;
             if (!string.IsNullOrEmpty(fallbackUrl))
-                PlayUrl(PrepareStreamUrl(fallbackUrl), vidId);
+                PlayUrl(PrepareStreamUrl(fallbackUrl), vidId, generation);
             else
                 ReportErrorToUI("No stream available");
         }
@@ -562,8 +628,9 @@ namespace AudioPlayerTask
             return url;
         }
 
-        private void PlayUrl(string trackUrl, string vidId)
+        private void PlayUrl(string trackUrl, string vidId, int generation)
         {
+            if (!CanStartBackgroundPlayback(generation)) return;
             _mediaPlayer.AutoPlay = false;
             try
             {
@@ -576,6 +643,11 @@ namespace AudioPlayerTask
 
                 UpdateSystemMediaControls();
                 _mediaPlayer.SetUriSource(new Uri(trackUrl));
+                if (!CanStartBackgroundPlayback(generation))
+                {
+                    try { _mediaPlayer.Pause(); } catch { }
+                    return;
+                }
                 _currentLoadedVidId = vidId;
                 _mediaPlayer.Play();
                 _systemControls.PlaybackStatus = MediaPlaybackStatus.Playing;
@@ -592,6 +664,12 @@ namespace AudioPlayerTask
 
         private void MediaPlayer_MediaOpened(MediaPlayer sender, object args)
         {
+            if (IsForegroundVideoMode())
+            {
+                _pendingStartPosition = TimeSpan.Zero;
+                try { sender.Pause(); } catch { }
+                return;
+            }
             if (_pendingStartPosition <= TimeSpan.Zero) return;
             try { sender.Position = _pendingStartPosition; }
             catch { }
@@ -605,6 +683,13 @@ namespace AudioPlayerTask
         // ==========================================
         private async void MediaPlayer_MediaFailed(MediaPlayer sender, MediaPlayerFailedEventArgs args)
         {
+            if (IsForegroundVideoMode())
+            {
+                _isRetrying = false;
+                return;
+            }
+            int failureGeneration = _playbackGeneration;
+            if (!CanStartBackgroundPlayback(failureGeneration)) return;
             // [FIX-SOF] Guard against re-entrancy — prevents StackOverflowException
             if (_isRetrying) return;
             _isRetrying = true;
@@ -635,9 +720,11 @@ namespace AudioPlayerTask
             if (_retryCount <= 2)
             {
                 await Task.Delay(800);
+                if (!CanStartBackgroundPlayback(failureGeneration)) { _isRetrying = false; return; }
                 _isRetrying = false; // Allow next failure to re-enter
                 _cachedVisitorData = null;
                 string freshUrl = await ResolveViaInnerTubeDirectAsync(vidId);
+                if (!CanStartBackgroundPlayback(failureGeneration)) { _isRetrying = false; return; }
                 if (!string.IsNullOrEmpty(freshUrl))
                 {
                     freshUrl = PrepareStreamUrl(freshUrl);
@@ -650,6 +737,7 @@ namespace AudioPlayerTask
 
             // Retry 3-4: Dùng URL từ MainPage
             await Task.Delay(800);
+            if (!CanStartBackgroundPlayback(failureGeneration)) { _isRetrying = false; return; }
             _isRetrying = false; // Allow next failure to re-enter
             _innerTubeAttempted = true;
             _resolvedUrl = null;
@@ -728,6 +816,7 @@ namespace AudioPlayerTask
         {
             try
             {
+                if (IsForegroundVideoMode()) { StopCrossfadeMonitor(); return; }
                 if (_mediaPlayer == null) return;
                 if (_mediaPlayer.CurrentState != MediaPlayerState.Playing) return;
 
@@ -770,15 +859,24 @@ namespace AudioPlayerTask
 
         private async void StartCrossfadeTransition(int durationSec)
         {
+            int generation = _playbackGeneration;
+            double origVol = 1.0;
             try
             {
-                double origVol = _mediaPlayer.Volume;
+                if (!CanStartBackgroundPlayback(generation)) { _isCrossfading = false; return; }
+                origVol = _mediaPlayer.Volume;
                 int steps = durationSec * 10; // 100ms per step
                 double volStep = origVol / steps;
 
                 for (int i = 0; i < steps; i++)
                 {
                     await Task.Delay(100);
+                    if (!CanStartBackgroundPlayback(generation))
+                    {
+                        try { _mediaPlayer.Volume = origVol; } catch { }
+                        _isCrossfading = false;
+                        return;
+                    }
                     try
                     {
                         double newVol = _mediaPlayer.Volume - volStep;
@@ -790,17 +888,28 @@ namespace AudioPlayerTask
 
                 // Crossfade complete → move to next
                 _isCrossfading = false;
+                if (!CanStartBackgroundPlayback(generation))
+                {
+                    try { _mediaPlayer.Volume = origVol; } catch { }
+                    return;
+                }
                 MoveNext();
             }
-            catch { _isCrossfading = false; }
+            catch
+            {
+                try { _mediaPlayer.Volume = origVol; } catch { }
+                _isCrossfading = false;
+            }
         }
 
         private async void PreResolveNextTrack()
         {
+            int generation = _playbackGeneration;
             _preResolvedNextUrl = null;
             _preResolvedNextIndex = -1;
             try
             {
+                if (!CanStartBackgroundPlayback(generation)) return;
                 var ls = Windows.Storage.ApplicationData.Current.LocalSettings.Values;
                 bool gapless = ls.ContainsKey("GaplessPlayback") ? (bool)ls["GaplessPlayback"] : true;
                 if (!gapless) return;
@@ -832,6 +941,7 @@ namespace AudioPlayerTask
                 }
 
                 string url = await ResolveViaInnerTubeDirectAsync(nextVidId);
+                if (!CanStartBackgroundPlayback(generation)) return;
                 if (!string.IsNullOrEmpty(url))
                 {
                     _preResolvedNextUrl = PrepareStreamUrl(url);
@@ -843,6 +953,7 @@ namespace AudioPlayerTask
 
         private void MoveNext()
         {
+            if (IsForegroundVideoMode()) return;
             if (_trackList.Count == 0) return;
             var ls = Windows.Storage.ApplicationData.Current.LocalSettings.Values;
             bool shuffle = ls.ContainsKey("ShuffleMode") ? (bool)ls["ShuffleMode"] : false;
@@ -889,6 +1000,7 @@ namespace AudioPlayerTask
 
         private void MovePrevious()
         {
+            if (IsForegroundVideoMode()) return;
             if (_trackList.Count == 0) return;
             if (_mediaPlayer.Position.TotalSeconds > 3) { _mediaPlayer.Position = TimeSpan.Zero; _mediaPlayer.Play(); return; }
             var ls = Windows.Storage.ApplicationData.Current.LocalSettings.Values;
@@ -903,6 +1015,7 @@ namespace AudioPlayerTask
 
         private void MediaPlayer_MediaEnded(MediaPlayer sender, object args)
         {
+            if (IsForegroundVideoMode()) return;
             // If crossfade already triggered MoveNext, skip
             if (_isCrossfading) return;
             StopCrossfadeMonitor();
@@ -913,8 +1026,21 @@ namespace AudioPlayerTask
         {
             try
             {
+                if (IsForegroundVideoMode())
+                {
+                    _foregroundVideoMode = true;
+                    if (sender.CurrentState == MediaPlayerState.Playing)
+                    {
+                        try { sender.Pause(); } catch { }
+                    }
+                    try { Windows.Storage.ApplicationData.Current.LocalSettings.Values["BackgroundWasPlaying"] = false; } catch { }
+                    _systemControls.PlaybackStatus = _foregroundVideoPlaying
+                        ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused;
+                    return;
+                }
                 if (sender.CurrentState == MediaPlayerState.Playing)
                 {
+                    if (_crossfadeTimer == null) StartCrossfadeMonitor();
                     try { Windows.Storage.ApplicationData.Current.LocalSettings.Values["BackgroundWasPlaying"] = true; } catch { }
                     // [FIX-SOF] Only reset retryCount if NOT in a retry cycle
                     // Without this guard, player briefly entering Playing before failing
@@ -957,6 +1083,46 @@ namespace AudioPlayerTask
 
         private void SystemControls_ButtonPressed(SystemMediaTransportControls sender, SystemMediaTransportControlsButtonPressedEventArgs args)
         {
+            if (IsForegroundVideoMode())
+            {
+                _foregroundVideoMode = true;
+                string command = null;
+                switch (args.Button)
+                {
+                    case SystemMediaTransportControlsButton.Play:
+                        command = "Play";
+                        _foregroundVideoPlaying = true;
+                        _systemControls.PlaybackStatus = MediaPlaybackStatus.Playing;
+                        break;
+                    case SystemMediaTransportControlsButton.Pause:
+                        command = "Pause";
+                        _foregroundVideoPlaying = false;
+                        _systemControls.PlaybackStatus = MediaPlaybackStatus.Paused;
+                        break;
+                    case SystemMediaTransportControlsButton.Stop:
+                        command = "Stop";
+                        _foregroundVideoPlaying = false;
+                        _systemControls.PlaybackStatus = MediaPlaybackStatus.Stopped;
+                        break;
+                    case SystemMediaTransportControlsButton.Next:
+                        command = "Next";
+                        break;
+                    case SystemMediaTransportControlsButton.Previous:
+                        command = "Previous";
+                        break;
+                }
+                if (!string.IsNullOrEmpty(command))
+                {
+                    try
+                    {
+                        BackgroundMediaPlayer.SendMessageToForeground(
+                            new ValueSet { { "VideoTransportCommand", command } });
+                    }
+                    catch { }
+                }
+                return;
+            }
+
             switch (args.Button)
             {
                 case SystemMediaTransportControlsButton.Play: try { if (_mediaPlayer.CurrentState == MediaPlayerState.Closed) StartPlaybackAsync(); else _mediaPlayer.Play(); } catch { StartPlaybackAsync(); } break;
