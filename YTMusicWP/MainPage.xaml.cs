@@ -76,6 +76,7 @@ namespace YTMusicWP
             Symbol sym = isPlaying ? Symbol.Pause : Symbol.Play;
             MiniPlayIcon.Symbol = sym;
             BigPlayIcon.Symbol = sym;
+            FullscreenPlayIcon.Symbol = sym;
         }
 
         private static readonly HttpClient _apiClient = new HttpClient() { Timeout = TimeSpan.FromSeconds(15) };

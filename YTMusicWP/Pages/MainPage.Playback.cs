@@ -336,6 +336,13 @@ namespace YTMusicWP
                         TotalTimeText.Text = FormatPlaybackTime(videoDuration);
                         MiniProgressBar.Maximum = videoDuration.TotalSeconds;
                         MiniProgressBar.Value = videoPosition.TotalSeconds;
+                        if (_isFullscreenVideo && !_isFullscreenSliderManipulating)
+                        {
+                            FullscreenVideoSlider.Maximum = videoDuration.TotalSeconds;
+                            FullscreenVideoSlider.Value = videoPosition.TotalSeconds;
+                            FullscreenCurrentTimeText.Text = FormatPlaybackTime(videoPosition);
+                            FullscreenTotalTimeText.Text = FormatPlaybackTime(videoDuration);
+                        }
                     });
                 }
                 catch { }
@@ -624,6 +631,7 @@ namespace YTMusicWP
         private bool _showVideoSurface = true;
         private bool _isFullscreenVideo = false;
         private bool _fullscreenLandscape = false;
+        private bool _isFullscreenSliderManipulating = false;
         private TimeSpan _fullscreenSeekPosition = TimeSpan.Zero;
 
         private static string FormatPlaybackTime(TimeSpan value)
@@ -657,7 +665,33 @@ namespace YTMusicWP
                 FullscreenVideo.Position = _fullscreenSeekPosition;
                 _fullscreenSeekPosition = TimeSpan.Zero;
             }
+            if (FullscreenVideo.NaturalDuration.HasTimeSpan)
+            {
+                TimeSpan duration = FullscreenVideo.NaturalDuration.TimeSpan;
+                FullscreenVideoSlider.Maximum = duration.TotalSeconds;
+                FullscreenVideoSlider.Value = FullscreenVideo.Position.TotalSeconds;
+                FullscreenCurrentTimeText.Text = FormatPlaybackTime(FullscreenVideo.Position);
+                FullscreenTotalTimeText.Text = FormatPlaybackTime(duration);
+            }
             FullscreenVideo.Play();
+        }
+
+        private void FullscreenVideoSlider_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            _isFullscreenSliderManipulating = true;
+        }
+
+        private void FullscreenVideoSlider_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+        {
+            _isFullscreenSliderManipulating = false;
+            try
+            {
+                if (!FullscreenVideo.NaturalDuration.HasTimeSpan) return;
+                FullscreenVideo.Position = TimeSpan.FromSeconds(Math.Min(FullscreenVideoSlider.Value,
+                    Math.Max(0, FullscreenVideo.NaturalDuration.TimeSpan.TotalSeconds - 2)));
+                FullscreenCurrentTimeText.Text = FormatPlaybackTime(FullscreenVideo.Position);
+            }
+            catch { }
         }
 
         private void VideoPlayer_CurrentStateChanged(object sender, RoutedEventArgs e)
