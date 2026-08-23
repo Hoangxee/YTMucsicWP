@@ -2208,16 +2208,17 @@
 
         <!-- Fullscreen foreground video -->
         <Grid x:Name="FullscreenVideoView" Visibility="Collapsed" Grid.Row="0" Grid.RowSpan="3"
-              Canvas.ZIndex="140" Background="Black">
+              Canvas.ZIndex="140" Background="Black" Tapped="FullscreenVideoView_Tapped">
             <MediaElement x:Name="FullscreenVideo" AutoPlay="True" Stretch="Uniform"
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                           MediaOpened="FullscreenVideo_MediaOpened" MediaEnded="FullscreenVideo_MediaEnded"
                           MediaFailed="FullscreenVideo_MediaFailed" CurrentStateChanged="VideoPlayer_CurrentStateChanged"/>
+            <Grid x:Name="FullscreenVideoControls" Tapped="FullscreenVideoControls_Tapped">
             <Button Content="←" Click="CloseFullscreenVideo_Click" HorizontalAlignment="Left" VerticalAlignment="Top"
-                    Margin="12,20,0,0" Width="48" Height="48" FontSize="24"
+                    Margin="12,8,0,0" Width="48" Height="48" FontSize="24"
                     Background="#AA121212" Foreground="White" BorderThickness="0"/>
             <Button Content="↻" Click="RotateFullscreenVideo_Click" HorizontalAlignment="Right" VerticalAlignment="Top"
-                    Margin="0,20,12,0" Width="48" Height="48" FontSize="24"
+                    Margin="0,8,12,0" Width="48" Height="48" FontSize="24"
                     Background="#AA121212" Foreground="White" BorderThickness="0"/>
             <Grid VerticalAlignment="Bottom" Background="#CC121212">
                 <Grid.RowDefinitions>
@@ -2253,6 +2254,7 @@
                         <FontIcon FontFamily="Segoe UI Symbol" Glyph="&#xE101;" Foreground="White" FontSize="24"/>
                     </Button>
                 </Grid>
+            </Grid>
             </Grid>
         </Grid>
 

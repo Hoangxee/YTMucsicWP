@@ -654,8 +654,34 @@ namespace YTMusicWP
             _isFullscreenVideo = true;
             _fullscreenSeekPosition = ForegroundVideo.Position;
             ForegroundVideo.Pause();
+            FullscreenVideoControls.Visibility = Visibility.Visible;
             FullscreenVideoView.Visibility = Visibility.Visible;
+            SetFullscreenSystemUi(true);
             FullscreenVideo.Source = ForegroundVideo.Source;
+        }
+
+        private async void SetFullscreenSystemUi(bool fullscreen)
+        {
+            try
+            {
+                var statusBar = Windows.UI.ViewManagement.StatusBar.GetForCurrentView();
+                if (fullscreen) await statusBar.HideAsync();
+                else await statusBar.ShowAsync();
+            }
+            catch { }
+        }
+
+        private void FullscreenVideoView_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            if (!_isFullscreenVideo) return;
+            FullscreenVideoControls.Visibility = FullscreenVideoControls.Visibility == Visibility.Visible
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+        }
+
+        private void FullscreenVideoControls_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            e.Handled = true;
         }
 
         private void FullscreenVideo_MediaOpened(object sender, RoutedEventArgs e)
@@ -718,6 +744,7 @@ namespace YTMusicWP
             FullscreenVideo.Stop();
             FullscreenVideo.Source = null;
             FullscreenVideoView.Visibility = Visibility.Collapsed;
+            SetFullscreenSystemUi(false);
             _isFullscreenVideo = false;
             _fullscreenLandscape = false;
             Windows.Graphics.Display.DisplayInformation.AutoRotationPreferences = Windows.Graphics.Display.DisplayOrientations.Portrait;
