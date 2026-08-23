@@ -35,7 +35,6 @@ namespace AudioPlayerTask
         // Server stream state
         private string _resolvedUrl = null;
         private bool _innerTubeAttempted = false;
-        private TimeSpan _pendingStartPosition = TimeSpan.Zero;
 
         // Tối đa 4 lần retry: Stream URL (2 lần) → Render /api/play (2 lần)
         private const int MAX_RETRIES = 4;
@@ -55,7 +54,6 @@ namespace AudioPlayerTask
             _mediaPlayer = BackgroundMediaPlayer.Current;
             _mediaPlayer.MediaEnded += MediaPlayer_MediaEnded;
             _mediaPlayer.MediaFailed += MediaPlayer_MediaFailed;
-            _mediaPlayer.MediaOpened += MediaPlayer_MediaOpened;
             _mediaPlayer.CurrentStateChanged += MediaPlayer_CurrentStateChanged;
 
             BackgroundMediaPlayer.MessageReceivedFromForeground += BackgroundMediaPlayer_MessageReceivedFromForeground;
@@ -70,7 +68,6 @@ namespace AudioPlayerTask
                 _systemControls.IsEnabled = false;
                 _mediaPlayer.MediaEnded -= MediaPlayer_MediaEnded;
                 _mediaPlayer.MediaFailed -= MediaPlayer_MediaFailed;
-                _mediaPlayer.MediaOpened -= MediaPlayer_MediaOpened;
                 _mediaPlayer.CurrentStateChanged -= MediaPlayer_CurrentStateChanged;
                 BackgroundMediaPlayer.MessageReceivedFromForeground -= BackgroundMediaPlayer_MessageReceivedFromForeground;
                 BackgroundMediaPlayer.Shutdown();
@@ -91,9 +88,6 @@ namespace AudioPlayerTask
                 _videoIdList = new List<string>((string[])e.Data["VideoIds"]);
                 _thumbnailList = new List<string>((string[])e.Data["Thumbnails"]);
                 _currentTrackIndex = (int)e.Data["StartIndex"];
-                _pendingStartPosition = e.Data.ContainsKey("StartPositionTicks")
-                    ? TimeSpan.FromTicks((long)e.Data["StartPositionTicks"])
-                    : TimeSpan.Zero;
 
                 if (e.Data.ContainsKey("FastUrl"))
                 {
@@ -459,14 +453,7 @@ namespace AudioPlayerTask
             // Skip nếu bài cũ vẫn đang phát (không retry)
             if (vidId == _currentLoadedVidId && _mediaPlayer.CurrentState != MediaPlayerState.Closed && _retryCount == 0)
             {
-                try
-                {
-                    _mediaPlayer.Position = _pendingStartPosition > TimeSpan.Zero ? _pendingStartPosition : TimeSpan.Zero;
-                    _pendingStartPosition = TimeSpan.Zero;
-                    _mediaPlayer.Play();
-                    _systemControls.PlaybackStatus = MediaPlaybackStatus.Playing;
-                    UpdateSystemMediaControls();
-                }
+                try { _mediaPlayer.Position = TimeSpan.Zero; _mediaPlayer.Play(); _systemControls.PlaybackStatus = MediaPlaybackStatus.Playing; UpdateSystemMediaControls(); }
                 catch { }
                 return;
             }
@@ -546,14 +533,6 @@ namespace AudioPlayerTask
             {
                 ReportErrorToUI("Stream Error: " + ex.Message.Split('\n')[0]);
             }
-        }
-
-        private void MediaPlayer_MediaOpened(MediaPlayer sender, object args)
-        {
-            if (_pendingStartPosition <= TimeSpan.Zero) return;
-            try { sender.Position = _pendingStartPosition; }
-            catch { }
-            _pendingStartPosition = TimeSpan.Zero;
         }
 
         // ==========================================
