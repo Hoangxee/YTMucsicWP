@@ -1,24 +1,25 @@
 <Page x:Class="SoundCloudWP.MainPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Grid Background="#101010">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <StackPanel Margin="18,16,18,10">
-      <Grid>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-        <StackPanel><TextBlock Text="SOUNDCLOUD" Foreground="#FF5500" FontSize="15" FontWeight="SemiBold"/><TextBlock Text="FREE PLAYER" Foreground="White" FontSize="30" FontWeight="Light" Margin="0,-4,0,0"/></StackPanel>
-        <Button Grid.Column="1" x:Name="LibraryButton" Content="LIBRARY" Click="Library_Click"/>
+    <StackPanel Background="#FF5500" Margin="0,0,0,10">
+      <Grid Margin="14,12,14,0">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="54"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <Image Source="Assets/SmallLogo.scale-140.png" Width="48" Height="48"/>
+        <StackPanel Grid.Column="1" Margin="9,0,0,0"><TextBlock Text="SOUNDCLOUD" Foreground="White" FontSize="15" FontWeight="SemiBold"/><TextBlock Text="FREE PLAYER" Foreground="White" FontSize="28" FontWeight="Light" Margin="0,-4,0,0"/></StackPanel>
+        <Button Grid.Column="2" x:Name="LibraryButton" Content="LIBRARY" Click="Library_Click" Foreground="White" BorderBrush="White" Background="Transparent"/>
       </Grid>
-      <Grid Margin="0,8,0,0">
+      <Grid Margin="14,8,14,0">
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <TextBox x:Name="SearchBox" PlaceholderText="Search SoundCloud" KeyDown="SearchBox_KeyDown"/>
-        <Button Grid.Column="1" Content="SEARCH" Click="Search_Click" Margin="6,0,0,0"/>
+        <Button Grid.Column="1" Content="SEARCH" Click="Search_Click" Margin="6,0,0,0" Foreground="#FF5500" Background="White" BorderBrush="White"/>
       </Grid>
-      <TextBlock x:Name="StatusText" Text="Search, open a public track, then tap PLAY." Foreground="#B0B0B0" TextWrapping="Wrap" Margin="0,6,0,0"/>
+      <TextBlock x:Name="StatusText" Text="Search, open a public track, then tap PLAY." Foreground="White" TextWrapping="Wrap" Margin="14,6,14,10"/>
     </StackPanel>
     <Grid Grid.Row="1">
       <WebView x:Name="SearchBrowser" NavigationStarting="SearchBrowser_NavigationStarting" NavigationCompleted="SearchBrowser_NavigationCompleted"/>
       <Grid x:Name="LibraryPanel" Background="#101010" Visibility="Collapsed">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-        <TextBlock Text="LOCAL ALBUMS" Foreground="White" FontSize="26" FontWeight="Light" Margin="18,12"/>
+        <TextBlock Text="LOCAL ALBUMS" Foreground="#FF5500" FontSize="26" FontWeight="Light" Margin="18,12"/>
         <ListView x:Name="SavedList" Grid.Row="1" IsItemClickEnabled="True" ItemClick="SavedList_ItemClick">
           <ListView.ItemTemplate><DataTemplate>
             <Grid Margin="12,5" Height="76">
@@ -31,7 +32,7 @@
       </Grid>
       <Grid x:Name="PlayerPanel" Background="#101010" Visibility="Collapsed">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-        <Grid Margin="12,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="PlayerTitle" Text="SoundCloud Player" Foreground="White" FontSize="18" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><Button Grid.Column="1" Content="CLOSE" Click="ClosePlayer_Click"/></Grid>
+        <Grid Background="#FF5500" Margin="0,0,0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="PlayerTitle" Text="SoundCloud Player" Foreground="White" FontSize="18" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="12,0,0,0"/><Button Grid.Column="1" Content="CLOSE" Click="ClosePlayer_Click" Foreground="White" BorderBrush="White" Background="Transparent"/></Grid>
         <WebView x:Name="PlayerBrowser" Grid.Row="1" NavigationCompleted="PlayerBrowser_NavigationCompleted"/>
       </Grid>
     </Grid>
@@ -40,7 +41,7 @@
       <Grid Margin="12,0,12,8">
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <TextBox x:Name="AlbumNameBox" PlaceholderText="Local album name" Text="Favorites"/>
-        <Button Grid.Column="1" Content="PLAY" Click="Play_Click" Margin="6,0,0,0"/><Button Grid.Column="2" Content="SAVE" Click="Save_Click" Margin="6,0,0,0"/>
+        <Button Grid.Column="1" Content="PLAY" Click="Play_Click" Margin="6,0,0,0" Foreground="White" Background="#FF5500" BorderBrush="#FF5500"/><Button Grid.Column="2" Content="SAVE" Click="Save_Click" Margin="6,0,0,0" Foreground="White" Background="#333333" BorderBrush="#666666"/>
       </Grid>
     </StackPanel>
   </Grid>

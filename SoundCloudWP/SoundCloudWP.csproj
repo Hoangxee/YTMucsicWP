@@ -44,18 +44,18 @@
     <Page Include="MainPage.xaml"><Generator>MSBuild:Compile</Generator><SubType>Designer</SubType></Page>
   </ItemGroup>
   <ItemGroup>
-    <Content Include="..\YTMusicWP\Assets\Logo.scale-100.png"><Link>Assets\Logo.scale-100.png</Link></Content>
-    <Content Include="..\YTMusicWP\Assets\Logo.scale-140.png"><Link>Assets\Logo.scale-140.png</Link></Content>
-    <Content Include="..\YTMusicWP\Assets\Logo.scale-240.png"><Link>Assets\Logo.scale-240.png</Link></Content>
-    <Content Include="..\YTMusicWP\Assets\SmallLogo.scale-100.png"><Link>Assets\SmallLogo.scale-100.png</Link></Content>
-    <Content Include="..\YTMusicWP\Assets\SmallLogo.scale-140.png"><Link>Assets\SmallLogo.scale-140.png</Link></Content>
-    <Content Include="..\YTMusicWP\Assets\SmallLogo.scale-240.png"><Link>Assets\SmallLogo.scale-240.png</Link></Content>
-    <Content Include="..\YTMusicWP\Assets\StoreLogo.scale-100.png"><Link>Assets\StoreLogo.scale-100.png</Link></Content>
-    <Content Include="..\YTMusicWP\Assets\StoreLogo.scale-140.png"><Link>Assets\StoreLogo.scale-140.png</Link></Content>
-    <Content Include="..\YTMusicWP\Assets\StoreLogo.scale-240.png"><Link>Assets\StoreLogo.scale-240.png</Link></Content>
-    <Content Include="..\YTMusicWP\Assets\SplashScreen.scale-100.png"><Link>Assets\SplashScreen.scale-100.png</Link></Content>
-    <Content Include="..\YTMusicWP\Assets\SplashScreen.scale-140.png"><Link>Assets\SplashScreen.scale-140.png</Link></Content>
-    <Content Include="..\YTMusicWP\Assets\SplashScreen.scale-240.png"><Link>Assets\SplashScreen.scale-240.png</Link></Content>
+    <Content Include="Assets\Logo.scale-100.png" />
+    <Content Include="Assets\Logo.scale-140.png" />
+    <Content Include="Assets\Logo.scale-240.png" />
+    <Content Include="Assets\SmallLogo.scale-100.png" />
+    <Content Include="Assets\SmallLogo.scale-140.png" />
+    <Content Include="Assets\SmallLogo.scale-240.png" />
+    <Content Include="Assets\StoreLogo.scale-100.png" />
+    <Content Include="Assets\StoreLogo.scale-140.png" />
+    <Content Include="Assets\StoreLogo.scale-240.png" />
+    <Content Include="Assets\SplashScreen.scale-100.png" />
+    <Content Include="Assets\SplashScreen.scale-140.png" />
+    <Content Include="Assets\SplashScreen.scale-240.png" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Newtonsoft.Json"><HintPath>..\packages\Newtonsoft.Json.13.0.4\lib\netstandard1.0\Newtonsoft.Json.dll</HintPath><Private>True</Private></Reference>
