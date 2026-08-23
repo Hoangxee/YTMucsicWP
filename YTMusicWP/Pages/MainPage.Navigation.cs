@@ -9,7 +9,7 @@ namespace YTMusicWP
     public sealed partial class MainPage
     {
         // ── Bottom Navigation ──
-        private int _currentTab = 0; // 0=Home, 1=Search, 2=Library
+        private int _currentTab = 0; // 0=Home, 1=Search, 2=Library, 3=Settings
         private static readonly SolidColorBrush _navActiveBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255));
         private static readonly SolidColorBrush _navInactiveBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 179, 179, 179));
 
@@ -126,10 +126,8 @@ namespace YTMusicWP
             }
             // Close Shorts if open
             if (_shortsIsOpen) CloseShortsView();
-            // Also close Settings if open
-            SettingsPanel.Visibility = Visibility.Collapsed;
             // Fade-in animation for active panel
-            var panels = new[] { HomePanel, SearchPanel, LibraryPanel };
+            var panels = new[] { HomePanel, SearchPanel, LibraryPanel, SettingsPanel };
             for (int i = 0; i < panels.Length; i++)
             {
                 if (i == tab)
@@ -165,22 +163,27 @@ namespace YTMusicWP
             NavLibraryIcon.Fill = (tab == 2) ? _navActiveBrush : _navInactiveBrush;
             NavLibraryText.Foreground = (tab == 2) ? _navActiveBrush : _navInactiveBrush;
             NavLibraryText.FontWeight = (tab == 2) ? Windows.UI.Text.FontWeights.Bold : Windows.UI.Text.FontWeights.Normal;
+
+            NavCreateIcon.Fill = (tab == 3) ? _navActiveBrush : _navInactiveBrush;
+            NavCreateText.Foreground = (tab == 3) ? _navActiveBrush : _navInactiveBrush;
+            NavCreateText.FontWeight = (tab == 3) ? Windows.UI.Text.FontWeights.Bold : Windows.UI.Text.FontWeights.Normal;
         }
 
         private async void OpenSettings_Click(object sender, RoutedEventArgs e)
         {
-            SettingsPanel.Visibility = Visibility.Visible;
+            SwitchTab(3);
             await UpdateStorageDisplayAsync();
         }
 
         private void CloseSettings_Click(object sender, RoutedEventArgs e)
         {
-            SettingsPanel.Visibility = Visibility.Collapsed;
+            SwitchTab(0);
         }
 
-        private void NavCreate_Click(object sender, RoutedEventArgs e)
+        private async void NavCreate_Click(object sender, RoutedEventArgs e)
         {
-            OpenSettings_Click(sender, e);
+            SwitchTab(3);
+            await UpdateStorageDisplayAsync();
         }
 
         private void OpenCreateSheet()
