@@ -30,12 +30,23 @@ namespace YTMusicWP
                 return;
             }
 
-            try { _appMediaPlayer.Pause(); } catch { }
+            try
+            {
+                if (_appMediaPlayer == null || _appMediaPlayer.CurrentState == MediaPlayerState.Closed)
+                {
+                    _appMediaPlayer = BackgroundMediaPlayer.Current;
+                    _appMediaPlayer.CurrentStateChanged -= BackgroundMediaPlayer_CurrentStateChanged;
+                    _appMediaPlayer.CurrentStateChanged += BackgroundMediaPlayer_CurrentStateChanged;
+                }
+                _appMediaPlayer.Pause();
+            }
+            catch { }
             try { ForegroundVideo.Stop(); } catch { }
 
             if (!track.VideoId.StartsWith("LOCAL:") && !IsInternetAvailable()) { ShowToast("No Internet connection"); return; }
 
             currentTrack = track;
+            MiniPlayerContainer.Visibility = Visibility.Visible;
             MiniTitle.Text = track.Title; BigTitle.Text = track.Title;
             // Start marquee only if NowPlaying is already open (otherwise it starts when panel opens)
             if (NowPlayingView.Visibility == Visibility.Visible)
@@ -560,6 +571,32 @@ namespace YTMusicWP
             }
         }
 
+        private void StopPlaybackButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_isFullscreenVideo) CloseFullscreenVideo_Click(null, null);
+                ForegroundVideo.Stop();
+                ForegroundVideo.Source = null;
+                FullscreenVideo.Stop();
+                FullscreenVideo.Source = null;
+                try { _appMediaPlayer.Pause(); } catch { }
+                try { BackgroundMediaPlayer.SendMessageToBackground(new ValueSet { { "StopPlaybackMessage", "" } }); } catch { }
+            }
+            catch { }
+
+            currentTrack = null;
+            currentQueueTracks.Clear();
+            MusicSlider.Value = 0;
+            MiniProgressBar.Value = 0;
+            CurrentTimeText.Text = "0:00";
+            TotalTimeText.Text = "0:00";
+            NowPlayingView.Visibility = Visibility.Collapsed;
+            FullscreenVideoView.Visibility = Visibility.Collapsed;
+            MiniPlayerContainer.Visibility = Visibility.Collapsed;
+            SetPlayPauseIcon(false);
+        }
+
         private void ForegroundVideo_MediaEnded(object sender, RoutedEventArgs e)
         {
             PlayAdjacentVideo(1);
@@ -651,6 +688,7 @@ namespace YTMusicWP
 
                 if (_appMediaPlayer.CurrentState == MediaPlayerState.Playing || _appMediaPlayer.CurrentState == MediaPlayerState.Paused)
                 {
+                    MiniPlayerContainer.Visibility = Visibility.Visible;
                     bool isPlaying = (_appMediaPlayer.CurrentState == MediaPlayerState.Playing);
                     SetPlayPauseIcon(isPlaying);
 
@@ -719,6 +757,7 @@ namespace YTMusicWP
             {
                 await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
                 {
+                    MiniPlayerContainer.Visibility = Visibility.Visible;
                     string title = e.Data["NewTitle"]?.ToString() ?? "";
                     string artist = e.Data["NewArtist"]?.ToString() ?? "";
                     string vid = e.Data.ContainsKey("NewVideoId") ? e.Data["NewVideoId"].ToString() : "";

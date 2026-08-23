@@ -1858,7 +1858,7 @@
         </Grid>
 
         <!-- ═══════════════════════════════════ MINI PLAYER (Row 1) ═══════════════════════════════════ -->
-        <Grid Grid.Row="1">
+        <Grid x:Name="MiniPlayerContainer" Grid.Row="1" Visibility="Collapsed">
             <!-- Mini player green accent top line -->
             <Rectangle Height="2" VerticalAlignment="Top" Canvas.ZIndex="5">
                 <Rectangle.Fill>
@@ -1873,6 +1873,7 @@
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
@@ -1896,6 +1897,9 @@
                     </Button>
                     <Button Grid.Column="2" Click="NextButton_Click" Style="{StaticResource IconButtonStyle}" Width="50">
                         <FontIcon FontFamily="Segoe UI Symbol" Glyph="&#xE101;" Foreground="White" FontSize="20"/>
+                    </Button>
+                    <Button Grid.Column="3" Click="StopPlaybackButton_Click" Style="{StaticResource IconButtonStyle}" Width="44" ToolTipService.ToolTip="Stop playback">
+                        <FontIcon FontFamily="Segoe UI Symbol" Glyph="&#xE15B;" Foreground="#B3B3B3" FontSize="17"/>
                     </Button>
                 </Grid>
             </Border>

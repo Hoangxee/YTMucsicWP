@@ -120,6 +120,29 @@ namespace AudioPlayerTask
             }
             else if (e.Data.ContainsKey("NextTrackMessage")) MoveNext();
             else if (e.Data.ContainsKey("PrevTrackMessage")) MovePrevious();
+            else if (e.Data.ContainsKey("StopPlaybackMessage"))
+            {
+                try
+                {
+                    StopCrossfadeMonitor();
+                    _mediaPlayer.Pause();
+                    _trackList.Clear();
+                    _titleList.Clear();
+                    _artistList.Clear();
+                    _videoIdList.Clear();
+                    _thumbnailList.Clear();
+                    _currentTrackIndex = -1;
+                    _systemControls.PlaybackStatus = MediaPlaybackStatus.Stopped;
+                    _systemControls.IsEnabled = false;
+                    var settings = Windows.Storage.ApplicationData.Current.LocalSettings.Values;
+                    settings.Remove("CurrentTitle");
+                    settings.Remove("CurrentArtist");
+                    settings.Remove("CurrentVideoId");
+                    settings.Remove("CurrentThumbnail");
+                    BackgroundMediaPlayer.Shutdown();
+                }
+                catch { }
+            }
         }
 
         private void ResetRetryState()
