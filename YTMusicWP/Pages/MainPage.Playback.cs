@@ -323,7 +323,7 @@ namespace YTMusicWP
         {
             // [OPT-P1] Bail-out sớm TRƯỚC khi gọi Dispatcher — tiết kiệm thread switch trên WP8.1
             if (_isSliderManipulating) return;
-            bool videoMode = SafeGetBool(ApplicationData.Current.LocalSettings.Values, "VideoMode", true);
+            bool videoMode = SafeGetBool(ApplicationData.Current.LocalSettings.Values, "VideoMode", true) && _showVideoSurface;
             if (videoMode)
             {
                 try
@@ -716,6 +716,26 @@ namespace YTMusicWP
         private async void VideoSurfaceToggle_Click(object sender, RoutedEventArgs e)
         {
             if (!VideoModeToggle.IsOn || currentTrack == null || currentTrack.VideoId.StartsWith("LOCAL:")) return;
+
+            if (_showVideoSurface)
+            {
+                await HandoffVideoToBackgroundAsync();
+                if (!_backgroundHandoffStarted)
+                {
+                    ShowToast("Unable to continue audio in background");
+                    return;
+                }
+
+                _showVideoSurface = false;
+                ForegroundVideo.Visibility = Visibility.Collapsed;
+                NowPlayingCoverRect.Visibility = Visibility.Visible;
+                VideoSurfaceToggleBtn.Content = "VIDEO";
+                _videoWasPlayingBeforeSuspend = false;
+                _backgroundHandoffStarted = false;
+                SetPlayPauseIcon(true);
+                return;
+            }
+
             if (ForegroundVideo.Source == null)
             {
                 TimeSpan position = TimeSpan.Zero;
@@ -733,11 +753,22 @@ namespace YTMusicWP
                 }
                 catch { }
             }
-            _showVideoSurface = !_showVideoSurface;
-            ForegroundVideo.Visibility = _showVideoSurface ? Visibility.Visible : Visibility.Collapsed;
-            NowPlayingCoverRect.Visibility = _showVideoSurface ? Visibility.Collapsed : Visibility.Visible;
-            VideoSurfaceToggleBtn.Content = _showVideoSurface ? "IMAGE" : "VIDEO";
-            if (_showVideoSurface) ForegroundVideo.Play();
+            else
+            {
+                try
+                {
+                    TimeSpan position = _appMediaPlayer.Position;
+                    _appMediaPlayer.Pause();
+                    ForegroundVideo.Position = position;
+                }
+                catch { }
+            }
+
+            _showVideoSurface = true;
+            ForegroundVideo.Visibility = Visibility.Visible;
+            NowPlayingCoverRect.Visibility = Visibility.Collapsed;
+            VideoSurfaceToggleBtn.Content = "IMAGE";
+            ForegroundVideo.Play();
         }
 
         private void SavePlaybackUiState()
