@@ -5,10 +5,9 @@
       <TextBlock Text="FB WEB TEST" Foreground="White" FontSize="28" FontWeight="SemiBold" Margin="16,14,16,2"/>
       <TextBlock x:Name="StatusText" Text="Testing modern User-Agent on WP8.1" Foreground="White" TextWrapping="Wrap" Margin="16,0,16,12"/>
     </StackPanel>
-    <Grid Grid.Row="1" Margin="8,0,8,6">
-      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-      <Button Content="MOBILE" Click="Mobile_Click"/><Button Grid.Column="1" Content="BASIC" Click="Basic_Click"/><Button Grid.Column="2" Content="TOUCH" Click="Touch_Click"/><Button Grid.Column="3" Content="↻" HorizontalAlignment="Right" Click="Refresh_Click"/>
-    </Grid>
+    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="6,0,6,6">
+      <Button Content="LOGIN" Click="Mobile_Click"/><Button Content="HOME" Click="Home_Click"/><Button Content="MESSAGES" Click="Messages_Click"/><Button Content="REFRESH" Click="Refresh_Click"/>
+    </StackPanel>
     <WebView x:Name="Browser" Grid.Row="2" NavigationStarting="Browser_NavigationStarting" NavigationCompleted="Browser_NavigationCompleted"/>
   </Grid>
 </Page>

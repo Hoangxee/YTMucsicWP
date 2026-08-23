@@ -10,6 +10,8 @@ namespace FacebookWebWP
         private const string MobileUrl = "https://m.facebook.com/login/";
         private const string BasicUrl = "https://mbasic.facebook.com/login.php";
         private const string TouchUrl = "https://touch.facebook.com/login.php";
+        private const string HomeUrl = "https://mbasic.facebook.com/home.php";
+        private const string MessagesUrl = "https://mbasic.facebook.com/messages/";
         private const string ModernUserAgent = "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
         private string _currentUrl = MobileUrl;
 
@@ -36,6 +38,8 @@ namespace FacebookWebWP
         private void Mobile_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(MobileUrl); }
         private void Basic_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(BasicUrl); }
         private void Touch_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(TouchUrl); }
+        private void Home_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(HomeUrl); }
+        private void Messages_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(MessagesUrl); }
         private void Refresh_Click(object sender, RoutedEventArgs e) { NavigateSpoofed(_currentUrl); }
 
         private void Browser_NavigationStarting(WebView sender, WebViewNavigationStartingEventArgs args)
@@ -44,9 +48,15 @@ namespace FacebookWebWP
             StatusText.Text = args.Uri == null ? "Navigation starting…" : "Loading " + args.Uri.Host + args.Uri.AbsolutePath;
         }
 
-        private void Browser_NavigationCompleted(WebView sender, WebViewNavigationCompletedEventArgs args)
+        private async void Browser_NavigationCompleted(WebView sender, WebViewNavigationCompletedEventArgs args)
         {
-            StatusText.Text = args.IsSuccess ? "Page loaded. Try signing in directly with Facebook." : "Navigation failed: " + args.WebErrorStatus;
+            if (!args.IsSuccess) { StatusText.Text = "Navigation failed: " + args.WebErrorStatus; return; }
+            try
+            {
+                var result = await Browser.InvokeScriptAsync("eval", new[] { "document.title + ' | elements: ' + (document.body ? document.body.children.length : 0)" });
+                StatusText.Text = "Loaded: " + result;
+            }
+            catch { StatusText.Text = "Page loaded, but its document cannot be inspected."; }
         }
 
     }

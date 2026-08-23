@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/2010/manifest" xmlns:m3="http://schemas.microsoft.com/appx/2014/manifest" xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest">
-  <Identity Name="ed3c1e13-5579-4737-82dc-31141c99450f" Publisher="CN=nguye" Version="0.1.0.0" />
+  <Identity Name="ed3c1e13-5579-4737-82dc-31141c99450f" Publisher="CN=nguye" Version="0.1.1.0" />
   <mp:PhoneIdentity PhoneProductId="ed3c1e13-5579-4737-82dc-31141c99450f" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
   <Properties><DisplayName>FB Web Test</DisplayName><PublisherDisplayName>nguye</PublisherDisplayName><Logo>Assets\StoreLogo.png</Logo></Properties>
   <Prerequisites><OSMinVersion>6.3.1</OSMinVersion><OSMaxVersionTested>6.3.1</OSMaxVersionTested></Prerequisites><Resources><Resource Language="x-generate"/></Resources>
