@@ -1,0 +1,20 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 14
+VisualStudioVersion = 14.0.25420.1
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FacebookWebWP", "FacebookWebWP\FacebookWebWP.csproj", "{ED3C1E13-5579-4737-82DC-31141C99450F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|ARM = Debug|ARM
+		Release|ARM = Release|ARM
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{ED3C1E13-5579-4737-82DC-31141C99450F}.Debug|ARM.ActiveCfg = Debug|ARM
+		{ED3C1E13-5579-4737-82DC-31141C99450F}.Debug|ARM.Build.0 = Debug|ARM
+		{ED3C1E13-5579-4737-82DC-31141C99450F}.Debug|ARM.Deploy.0 = Debug|ARM
+		{ED3C1E13-5579-4737-82DC-31141C99450F}.Release|ARM.ActiveCfg = Release|ARM
+		{ED3C1E13-5579-4737-82DC-31141C99450F}.Release|ARM.Build.0 = Release|ARM
+		{ED3C1E13-5579-4737-82DC-31141C99450F}.Release|ARM.Deploy.0 = Release|ARM
+	EndGlobalSection
+EndGlobal
