@@ -149,7 +149,9 @@ namespace YTMusicWP
         {
             this.InitializeComponent();
 
+            BackgroundMediaPlayer.MessageReceivedFromBackground += BackgroundMediaPlayer_MessageReceivedFromBackground;
             _appMediaPlayer = BackgroundMediaPlayer.Current;
+            try { BackgroundMediaPlayer.SendMessageToBackground(new Windows.Foundation.Collections.ValueSet { { "Ping", "" } }); } catch { }
 
             SearchSongList.ItemsSource = searchResults;
 
@@ -185,7 +187,6 @@ namespace YTMusicWP
             var ignored = CleanTempStreamsInternalAsync();
             var ignoredDl = CleanStaleDownloadsAsync();
 
-            BackgroundMediaPlayer.MessageReceivedFromBackground += BackgroundMediaPlayer_MessageReceivedFromBackground;
             HardwareButtons.BackPressed += HardwareButtons_BackPressed;
 
             Application.Current.Suspending += Current_Suspending;

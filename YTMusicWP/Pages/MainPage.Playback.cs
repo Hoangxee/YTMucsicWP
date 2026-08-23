@@ -16,6 +16,14 @@ namespace YTMusicWP
 {
     public sealed partial class MainPage
     {
+        private ValueSet _pendingBackgroundPlaylist;
+
+        private void SendPlaylistToBackground(ValueSet message)
+        {
+            _pendingBackgroundPlaylist = message;
+            try { BackgroundMediaPlayer.SendMessageToBackground(message); } catch { }
+        }
+
         private async void PlayTrack(YouTubeTrack track)
         {
             if (track == null || string.IsNullOrEmpty(track.VideoId)) return;
@@ -177,7 +185,7 @@ namespace YTMusicWP
                 { "UpdatePlaylist", "" }, { "Urls", urls }, { "Titles", titles }, { "Artists", artists },
                 { "VideoIds", videoIds }, { "Thumbnails", thumbnails }, { "StartIndex", relativeStartIndex }, { "FastUrl", urls[relativeStartIndex] }
             };
-            try { BackgroundMediaPlayer.SendMessageToBackground(message); } catch { }
+            SendPlaylistToBackground(message);
         }
 
         private void SyncQueueToBackground()
@@ -222,7 +230,7 @@ namespace YTMusicWP
                 { "UpdatePlaylist", "" }, { "Urls", urls }, { "Titles", titles }, { "Artists", artists },
                 { "VideoIds", videoIds }, { "Thumbnails", thumbnails }, { "StartIndex", relativeStartIndex }
             };
-            try { BackgroundMediaPlayer.SendMessageToBackground(message); } catch { }
+            SendPlaylistToBackground(message);
         }
 
         private async void HeartButton_Click(object sender, RoutedEventArgs e)
@@ -649,7 +657,11 @@ namespace YTMusicWP
                 { "FastUrl", _handoffUrls[_handoffStartIndex] },
                 { "StartPositionTicks", _videoPositionBeforeSuspend.Ticks }
             };
-            try { BackgroundMediaPlayer.SendMessageToBackground(message); }
+            try
+            {
+                _pendingBackgroundPlaylist = message;
+                BackgroundMediaPlayer.SendMessageToBackground(message);
+            }
             catch { return; }
 
             for (int i = 0; i < 15; i++)
@@ -999,6 +1011,16 @@ namespace YTMusicWP
 
         private async void BackgroundMediaPlayer_MessageReceivedFromBackground(object sender, MediaPlayerDataReceivedEventArgs e)
         {
+            if (e.Data.ContainsKey("BackgroundReady") && _pendingBackgroundPlaylist != null)
+            {
+                try { BackgroundMediaPlayer.SendMessageToBackground(_pendingBackgroundPlaylist); } catch { }
+            }
+
+            if (e.Data.ContainsKey("PlaylistAccepted"))
+            {
+                _pendingBackgroundPlaylist = null;
+            }
+
             if (e.Data.ContainsKey("ToastMessage"))
             {
                 await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>

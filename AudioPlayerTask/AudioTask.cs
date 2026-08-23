@@ -60,6 +60,7 @@ namespace AudioPlayerTask
 
             BackgroundMediaPlayer.MessageReceivedFromForeground += BackgroundMediaPlayer_MessageReceivedFromForeground;
             taskInstance.Canceled += TaskInstance_Canceled;
+            try { BackgroundMediaPlayer.SendMessageToForeground(new ValueSet { { "BackgroundReady", "" } }); } catch { }
         }
 
         private void TaskInstance_Canceled(IBackgroundTaskInstance sender, BackgroundTaskCancellationReason reason)
@@ -83,7 +84,11 @@ namespace AudioPlayerTask
 
         private void BackgroundMediaPlayer_MessageReceivedFromForeground(object sender, MediaPlayerDataReceivedEventArgs e)
         {
-            if (e.Data.ContainsKey("UpdatePlaylist"))
+            if (e.Data.ContainsKey("Ping"))
+            {
+                try { BackgroundMediaPlayer.SendMessageToForeground(new ValueSet { { "BackgroundReady", "" } }); } catch { }
+            }
+            else if (e.Data.ContainsKey("UpdatePlaylist"))
             {
                 _trackList = new List<string>((string[])e.Data["Urls"]);
                 _titleList = new List<string>((string[])e.Data["Titles"]);
@@ -109,6 +114,7 @@ namespace AudioPlayerTask
                 bool hasFastUrl = _innerTubeAttempted; // set true bởi FastUrl ở trên
                 ResetRetryState();
                 if (hasFastUrl) _innerTubeAttempted = true; // giữ lại → skip double-resolve
+                try { BackgroundMediaPlayer.SendMessageToForeground(new ValueSet { { "PlaylistAccepted", "" } }); } catch { }
                 StartPlaybackAsync();
             }
             else if (e.Data.ContainsKey("UpdateQueueOnly"))
