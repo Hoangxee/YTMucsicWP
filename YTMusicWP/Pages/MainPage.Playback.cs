@@ -713,13 +713,73 @@ namespace YTMusicWP
             return value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : value.ToString(@"m\:ss");
         }
 
-        private void VideoSurfaceToggle_Click(object sender, RoutedEventArgs e)
+        private async void VideoSurfaceToggle_Click(object sender, RoutedEventArgs e)
         {
-            if (!VideoModeToggle.IsOn || ForegroundVideo.Source == null) return;
+            if (!VideoModeToggle.IsOn || currentTrack == null || currentTrack.VideoId.StartsWith("LOCAL:")) return;
+            if (ForegroundVideo.Source == null)
+            {
+                TimeSpan position = TimeSpan.Zero;
+                try { position = _appMediaPlayer.Position; } catch { }
+                string videoUrl = "";
+                try { videoUrl = await InnerTubeClient.ResolveStreamUrlAsync(currentTrack.VideoId, true) ?? ""; }
+                catch { }
+                if (string.IsNullOrEmpty(videoUrl)) { ShowToast("Unable to load video"); return; }
+                try
+                {
+                    _appMediaPlayer.Pause();
+                    ForegroundVideo.Source = new Uri(videoUrl, UriKind.Absolute);
+                    await System.Threading.Tasks.Task.Delay(250);
+                    ForegroundVideo.Position = position;
+                }
+                catch { }
+            }
             _showVideoSurface = !_showVideoSurface;
             ForegroundVideo.Visibility = _showVideoSurface ? Visibility.Visible : Visibility.Collapsed;
             NowPlayingCoverRect.Visibility = _showVideoSurface ? Visibility.Collapsed : Visibility.Visible;
             VideoSurfaceToggleBtn.Content = _showVideoSurface ? "IMAGE" : "VIDEO";
+            if (_showVideoSurface) ForegroundVideo.Play();
+        }
+
+        private void SavePlaybackUiState()
+        {
+            try
+            {
+                var values = ApplicationData.Current.LocalSettings.Values;
+                values["RestoreNowPlaying"] = NowPlayingView.Visibility == Visibility.Visible;
+                values["RestoreImageMode"] = !_showVideoSurface;
+            }
+            catch { }
+        }
+
+        private void RestorePlaybackUiState()
+        {
+            try
+            {
+                var values = ApplicationData.Current.LocalSettings.Values;
+                bool restoreNowPlaying = values.ContainsKey("RestoreNowPlaying") && (bool)values["RestoreNowPlaying"];
+                bool restoreImageMode = values.ContainsKey("RestoreImageMode") && (bool)values["RestoreImageMode"];
+                _showVideoSurface = !restoreImageMode;
+
+                if (currentTrack != null && VideoModeToggle.IsOn && !currentTrack.VideoId.StartsWith("LOCAL:"))
+                {
+                    if (ForegroundVideo.Source == null) _showVideoSurface = false;
+                    VideoSurfaceToggleBtn.Visibility = Visibility.Visible;
+                    VideoFullscreenBtn.Visibility = ForegroundVideo.Source != null ? Visibility.Visible : Visibility.Collapsed;
+                    VideoSurfaceToggleBtn.Content = _showVideoSurface ? "IMAGE" : "VIDEO";
+                    if (restoreImageMode)
+                    {
+                        ForegroundVideo.Visibility = Visibility.Collapsed;
+                        NowPlayingCoverRect.Visibility = Visibility.Visible;
+                    }
+                }
+
+                if (restoreNowPlaying && currentTrack != null)
+                {
+                    NowPlayingView.Visibility = Visibility.Visible;
+                    var ignored = Dispatcher.RunAsync(CoreDispatcherPriority.Low, () => StartTitleMarquee());
+                }
+            }
+            catch { }
         }
 
         private void OpenFullscreenVideo_Click(object sender, RoutedEventArgs e)

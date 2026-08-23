@@ -214,6 +214,7 @@ namespace YTMusicWP
             var deferral = e.SuspendingOperation.GetDeferral();
             try
             {
+                SavePlaybackUiState();
                 await HandoffVideoToBackgroundAsync();
                 if (_bgTimer != null)
                 {
@@ -248,6 +249,7 @@ namespace YTMusicWP
                 _appMediaPlayer.CurrentStateChanged += BackgroundMediaPlayer_CurrentStateChanged;
                 ResumeVideoAfterBackground();
                 SyncBackgroundPlayer();
+                RestorePlaybackUiState();
             }
             catch { }
         }
@@ -312,6 +314,7 @@ namespace YTMusicWP
             await LoadDownloadsAsync(); // depends on filesystem scan, runs after
 
             SyncBackgroundPlayer();
+            RestorePlaybackUiState();
 
             if (!IsInternetAvailable())
             {
