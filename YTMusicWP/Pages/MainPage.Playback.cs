@@ -165,7 +165,8 @@ namespace YTMusicWP
             YTMusicWP.Services.TileService.UpdateNowPlayingWithQueue(track.Title, track.ChannelName, track.ThumbnailUrl, activeList.Skip(activeList.IndexOf(track) + 1));
 
             var message = new ValueSet {
-                { "UpdatePlaylist", "" }, { "Urls", urls }, { "Titles", titles }, { "Artists", artists },
+                { VideoModeToggle.IsOn && !track.VideoId.StartsWith("LOCAL:") ? "PreparePlaylist" : "UpdatePlaylist", "" },
+                { "Urls", urls }, { "Titles", titles }, { "Artists", artists },
                 { "VideoIds", videoIds }, { "Thumbnails", thumbnails }, { "StartIndex", relativeStartIndex }, { "FastUrl", urls[relativeStartIndex] }
             };
             try { BackgroundMediaPlayer.SendMessageToBackground(message); } catch { }
@@ -317,6 +318,7 @@ namespace YTMusicWP
                 {
                     try
                     {
+                        if (VideoModeToggle.IsOn && ForegroundVideo.Source != null && !_videoHandedOffToBackground) return;
                         SetPlayPauseIcon(sender.CurrentState == MediaPlayerState.Playing);
                     }
                     catch { }
@@ -329,6 +331,36 @@ namespace YTMusicWP
         {
             // [OPT-P1] Bail-out sớm TRƯỚC khi gọi Dispatcher — tiết kiệm thread switch trên WP8.1
             if (_isSliderManipulating) return;
+            bool videoMode = SafeGetBool(ApplicationData.Current.LocalSettings.Values, "VideoMode", true);
+            if (videoMode && !_videoHandedOffToBackground)
+            {
+                try
+                {
+                    await Dispatcher.RunAsync(CoreDispatcherPriority.Low, () =>
+                    {
+                        MediaElement videoPlayer = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+                        if (videoPlayer.Source == null || !videoPlayer.NaturalDuration.HasTimeSpan) return;
+                        TimeSpan duration = videoPlayer.NaturalDuration.TimeSpan;
+                        TimeSpan position = videoPlayer.Position;
+                        if (duration.TotalSeconds <= 0) return;
+                        MusicSlider.Maximum = duration.TotalSeconds;
+                        MusicSlider.Value = position.TotalSeconds;
+                        CurrentTimeText.Text = FormatPlaybackTime(position);
+                        TotalTimeText.Text = FormatPlaybackTime(duration);
+                        MiniProgressBar.Maximum = duration.TotalSeconds;
+                        MiniProgressBar.Value = position.TotalSeconds;
+                        if (_isFullscreenVideo && !_isFullscreenSliderManipulating)
+                        {
+                            FullscreenVideoSlider.Maximum = duration.TotalSeconds;
+                            FullscreenVideoSlider.Value = position.TotalSeconds;
+                            FullscreenCurrentTimeText.Text = FormatPlaybackTime(position);
+                            FullscreenTotalTimeText.Text = FormatPlaybackTime(duration);
+                        }
+                    });
+                }
+                catch { }
+                return;
+            }
             MediaPlayer session;
             try { session = _appMediaPlayer; } catch { return; }
             if (session == null || session.CurrentState != MediaPlayerState.Playing) return;
@@ -486,14 +518,19 @@ namespace YTMusicWP
             try
             {
                 MediaElement videoPlayer = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+                if (VideoModeToggle.IsOn && videoPlayer.Source != null)
+                {
+                    videoPlayer.Position = TimeSpan.FromSeconds(Math.Min(MusicSlider.Value,
+                        Math.Max(0, videoPlayer.NaturalDuration.TimeSpan.TotalSeconds - 2)));
+                    videoPlayer.Play();
+                    return;
+                }
                 if (_appMediaPlayer.CurrentState != MediaPlayerState.Closed)
                 {
                     // FIX #7: Clamp giá trị seek để không bị âm với clip ngắn
                     TimeSpan target = TimeSpan.FromSeconds(Math.Min(MusicSlider.Value, Math.Max(0, _appMediaPlayer.NaturalDuration.TotalSeconds - 2)));
                     _appMediaPlayer.Position = target;
-                    if (VideoModeToggle.IsOn && videoPlayer.Source != null) videoPlayer.Position = target;
                     if (_appMediaPlayer.CurrentState == MediaPlayerState.Paused) _appMediaPlayer.Play();
-                    if (VideoModeToggle.IsOn && videoPlayer.Source != null) videoPlayer.Play();
                 }
             }
             catch { }
@@ -506,9 +543,9 @@ namespace YTMusicWP
                 if (VideoModeToggle.IsOn && ForegroundVideo.Source != null)
                 {
                     MediaElement videoPlayer = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
-                    bool wasPlaying = _appMediaPlayer.CurrentState == MediaPlayerState.Playing;
-                    if (wasPlaying) { _appMediaPlayer.Pause(); videoPlayer.Pause(); }
-                    else { _appMediaPlayer.Play(); videoPlayer.Play(); }
+                    bool wasPlaying = videoPlayer.CurrentState == MediaElementState.Playing;
+                    if (wasPlaying) videoPlayer.Pause();
+                    else videoPlayer.Play();
                     SetPlayPauseIcon(!wasPlaying);
                     return;
                 }
@@ -536,14 +573,8 @@ namespace YTMusicWP
                 if (VideoModeToggle.IsOn && ForegroundVideo.Source != null)
                 {
                     MediaElement videoPlayer = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
-                    if (_appMediaPlayer.Position.TotalSeconds > 3)
-                    {
-                        _appMediaPlayer.Position = TimeSpan.Zero;
-                        videoPlayer.Position = TimeSpan.Zero;
-                        _appMediaPlayer.Play();
-                        videoPlayer.Play();
-                    }
-                    else BackgroundMediaPlayer.SendMessageToBackground(new ValueSet { { "PrevTrackMessage", "" } });
+                    if (videoPlayer.Position.TotalSeconds > 3) { videoPlayer.Position = TimeSpan.Zero; videoPlayer.Play(); }
+                    else PlayAdjacentVideo(-1);
                     return;
                 }
                 if (_appMediaPlayer.Position.TotalSeconds > 3)
@@ -565,7 +596,7 @@ namespace YTMusicWP
             {
                 if (VideoModeToggle.IsOn && ForegroundVideo.Source != null)
                 {
-                    BackgroundMediaPlayer.SendMessageToBackground(new ValueSet { { "NextTrackMessage", "" } });
+                    PlayAdjacentVideo(1);
                     return;
                 }
                 // Always send NextTrackMessage — AudioTask handles Closed state internally
@@ -606,12 +637,26 @@ namespace YTMusicWP
 
         private void ForegroundVideo_MediaEnded(object sender, RoutedEventArgs e)
         {
-            // AudioPlayerTask owns queue advancement; the muted video follows TrackChanged.
+            PlayAdjacentVideo(1);
         }
 
         private void ForegroundVideo_MediaFailed(object sender, ExceptionRoutedEventArgs e)
         {
             RetryFailedVideo();
+        }
+
+        private void PlayAdjacentVideo(int offset)
+        {
+            if (currentTrack == null || currentQueueTracks.Count == 0) return;
+            int index = -1;
+            for (int i = 0; i < currentQueueTracks.Count; i++)
+            {
+                if (currentQueueTracks[i].VideoId == currentTrack.VideoId) { index = i; break; }
+            }
+            if (index < 0) return;
+            int next = index + offset;
+            if (next >= 0 && next < currentQueueTracks.Count) PlayTrack(currentQueueTracks[next]);
+            else SetPlayPauseIcon(false);
         }
 
         private bool _showVideoSurface = true;
@@ -626,6 +671,43 @@ namespace YTMusicWP
         private bool _videoResolveInProgress = false;
         private string _videoResolvingId = "";
         private bool _videoReloadPending = false;
+        private bool _videoHandedOffToBackground = false;
+        private bool _videoWasPlayingBeforeSuspend = false;
+
+        private void HandoffVideoToBackground()
+        {
+            if (!VideoModeToggle.IsOn || currentTrack == null || currentTrack.VideoId.StartsWith("LOCAL:")) return;
+            MediaElement player = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+            if (player.Source == null) return;
+            _videoWasPlayingBeforeSuspend = player.CurrentState == MediaElementState.Playing ||
+                player.CurrentState == MediaElementState.Buffering || player.CurrentState == MediaElementState.Opening;
+            if (!_videoWasPlayingBeforeSuspend) return;
+            try
+            {
+                BackgroundMediaPlayer.SendMessageToBackground(new ValueSet {
+                    { "PlayPrepared", "" }, { "StartPositionTicks", player.Position.Ticks }
+                });
+                player.Pause();
+                _videoHandedOffToBackground = true;
+            }
+            catch { }
+        }
+
+        private void ResumeVideoFromBackground()
+        {
+            if (!_videoHandedOffToBackground) return;
+            try
+            {
+                MediaElement player = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+                TimeSpan position = _appMediaPlayer.Position;
+                _appMediaPlayer.Pause();
+                player.Position = position;
+                if (_videoWasPlayingBeforeSuspend) player.Play();
+                SetPlayPauseIcon(_videoWasPlayingBeforeSuspend);
+            }
+            catch { }
+            _videoHandedOffToBackground = false;
+        }
 
         private async void LoadSyncedVideoAsync(string videoId, bool forceReload = false)
         {
@@ -651,7 +733,10 @@ namespace YTMusicWP
             }
             try
             {
-                TimeSpan audioPosition = _appMediaPlayer != null ? _appMediaPlayer.Position : TimeSpan.Zero;
+                MediaElement activeVideo = _isFullscreenVideo ? FullscreenVideo : ForegroundVideo;
+                TimeSpan audioPosition = _videoHandedOffToBackground && _appMediaPlayer != null
+                    ? _appMediaPlayer.Position
+                    : activeVideo.Position;
                 Uri source = new Uri(videoUrl, UriKind.Absolute);
                 _foregroundVideoId = videoId;
                 _foregroundVideoSeekPosition = audioPosition;
@@ -788,8 +873,6 @@ namespace YTMusicWP
                 if (!FullscreenVideo.NaturalDuration.HasTimeSpan) return;
                 FullscreenVideo.Position = TimeSpan.FromSeconds(Math.Min(FullscreenVideoSlider.Value,
                     Math.Max(0, FullscreenVideo.NaturalDuration.TimeSpan.TotalSeconds - 2)));
-                if (_appMediaPlayer.CurrentState != MediaPlayerState.Closed)
-                    _appMediaPlayer.Position = FullscreenVideo.Position;
                 FullscreenCurrentTimeText.Text = FormatPlaybackTime(FullscreenVideo.Position);
             }
             catch { }
@@ -800,11 +883,8 @@ namespace YTMusicWP
             var player = sender as MediaElement;
             if (player == null) return;
             if ((_isFullscreenVideo && player != FullscreenVideo) || (!_isFullscreenVideo && player != ForegroundVideo)) return;
-            if (!VideoModeToggle.IsOn)
-            {
-                if (player.CurrentState == MediaElementState.Playing) SetPlayPauseIcon(true);
-                else if (player.CurrentState == MediaElementState.Paused || player.CurrentState == MediaElementState.Stopped) SetPlayPauseIcon(false);
-            }
+            if (player.CurrentState == MediaElementState.Playing) SetPlayPauseIcon(true);
+            else if (player.CurrentState == MediaElementState.Paused || player.CurrentState == MediaElementState.Stopped) SetPlayPauseIcon(false);
         }
 
         private void RotateFullscreenVideo_Click(object sender, RoutedEventArgs e)
@@ -832,7 +912,7 @@ namespace YTMusicWP
 
         private void FullscreenVideo_MediaEnded(object sender, RoutedEventArgs e)
         {
-            // AudioPlayerTask owns queue advancement; the muted video follows TrackChanged.
+            PlayAdjacentVideo(1);
         }
 
         private void FullscreenVideo_MediaFailed(object sender, ExceptionRoutedEventArgs e)
