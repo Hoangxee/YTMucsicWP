@@ -324,16 +324,22 @@ namespace YTMusicWP
                     {
                         if (currentQueueTracks.Count > 1)
                         {
-                            BackgroundMediaPlayer.SendMessageToBackground(new Windows.Foundation.Collections.ValueSet { { "NextTrackMessage", "" } });
+                            SendImageTransportCommand("NextTrackMessage");
                         }
                         else
                         {
+                            SendImageTransportCommand("PausePlaybackMessage");
                             _appMediaPlayer.Pause();
                         }
                     }
                     catch
                     {
-                        try { _appMediaPlayer.Pause(); } catch { }
+                        try
+                        {
+                            SendImageTransportCommand("PausePlaybackMessage");
+                            _appMediaPlayer.Pause();
+                        }
+                        catch { }
                     }
                     currentTrack = null;
                     await Task.Delay(600);

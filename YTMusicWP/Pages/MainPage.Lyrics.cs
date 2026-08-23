@@ -388,7 +388,11 @@ namespace YTMusicWP
                     if (_appMediaPlayer.CurrentState != MediaPlayerState.Closed)
                     {
                         _appMediaPlayer.Position = line.Time;
-                        if (_appMediaPlayer.CurrentState == MediaPlayerState.Paused) _appMediaPlayer.Play();
+                        if (_appMediaPlayer.CurrentState == MediaPlayerState.Paused)
+                        {
+                            _imagePlaybackRequested = true;
+                            SendImageTransportCommand("ResumePlaybackMessage");
+                        }
                     }
                 }
                 catch { }
