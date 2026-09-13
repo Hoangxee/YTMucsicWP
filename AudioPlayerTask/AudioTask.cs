@@ -16,6 +16,7 @@ namespace AudioPlayerTask
         private BackgroundTaskDeferral _deferral;
         private SystemMediaTransportControls _systemControls;
         private MediaPlayer _mediaPlayer;
+        private string _backgroundInstanceId = Guid.NewGuid().ToString();
 
         // [OPT] Shared HttpClient — avoids socket leaks from creating new instances per resolve call
         private Windows.Web.Http.HttpClient _httpClient = new Windows.Web.Http.HttpClient();
@@ -31,6 +32,7 @@ namespace AudioPlayerTask
         private int _retryCount = 0;
         private bool _isRetrying = false;
         private string _currentLoadedVidId = "";
+        private long _currentLoadedPlaylistRequestId = 0;
 
         // Server stream state
         private string _resolvedUrl = null;
@@ -43,10 +45,13 @@ namespace AudioPlayerTask
         private long _lastPlaybackCommandGeneration = 0;
         private long _lastTransportCommandGeneration = 0;
         private long _lastPlaylistRequestId = 0;
+        private long _playbackStateSequence = 0;
         private long _awaitingPlaylistGeneration = 0;
         private int _pendingTrackOffset = 0;
         private bool _pendingRestartRequested = false;
         private bool _playlistNeedsStart = false;
+        private int _activePlaybackStartGeneration = -1;
+        private long _activePlaylistRequestId = 0;
 
         // Tối đa 4 lần retry: Stream URL (2 lần) → Render /api/play (2 lần)
         private const int MAX_RETRIES = 4;
@@ -121,6 +126,8 @@ namespace AudioPlayerTask
                             ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused)
                         : (_mediaPlayer.CurrentState == MediaPlayerState.Playing
                             ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused);
+                    SendForegroundVideoModeAccepted(commandGeneration,
+                        requestedVideoMode);
                     return;
                 }
                 _playbackGeneration++;
@@ -144,10 +151,17 @@ namespace AudioPlayerTask
                         _awaitingPlaylistGeneration = commandGeneration;
                         _pendingTrackOffset = 0;
                         _pendingRestartRequested = false;
+                        if (_lastTransportCommandGeneration <= commandGeneration)
+                        {
+                            _backgroundPlaybackRequested = false;
+                            try { _mediaPlayer.Pause(); } catch { }
+                        }
                     }
                     _systemControls.PlaybackStatus = _mediaPlayer.CurrentState == MediaPlayerState.Playing
                         ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused;
                 }
+                SendForegroundVideoModeAccepted(commandGeneration,
+                    requestedVideoMode);
             }
             else if (e.Data.ContainsKey("VideoPlaybackState"))
             {
@@ -250,6 +264,7 @@ namespace AudioPlayerTask
                 ResetRetryState();
                 if (hasFastUrl) _innerTubeAttempted = true; // giữ lại → skip double-resolve
                 if (playlistRequestId > 0) _lastPlaylistRequestId = playlistRequestId;
+                _activePlaylistRequestId = playlistRequestId;
                 SendPlaylistAccepted(playlistRequestId);
                 if (!IsForegroundVideoMode() && _backgroundPlaybackRequested)
                     StartPlaybackAsync();
@@ -284,7 +299,14 @@ namespace AudioPlayerTask
                     if (_playlistNeedsStart ||
                         _mediaPlayer.CurrentState == MediaPlayerState.Closed ||
                         _mediaPlayer.CurrentState == MediaPlayerState.Stopped)
-                        StartPlaybackAsync();
+                    {
+                        // UpdatePlaylist already starts the player. A Resume arriving
+                        // immediately after PlaylistAccepted must only update the desired
+                        // state; starting a second async resolver invalidates the first
+                        // generation and can leave the player stuck at the handoff time.
+                        if (!IsCurrentPlaybackStartInProgress())
+                            StartPlaybackAsync();
+                    }
                     else
                     {
                         _mediaPlayer.Play();
@@ -292,6 +314,7 @@ namespace AudioPlayerTask
                     }
                 }
                 catch { StartPlaybackAsync(); }
+                SendBackgroundPlaybackState("Requested", _mediaPlayer);
                 SendTransportAccepted(transportGeneration);
             }
             else if (e.Data.ContainsKey("NextTrackMessage"))
@@ -356,6 +379,7 @@ namespace AudioPlayerTask
                         _mediaPlayer.Position = TimeSpan.Zero;
                         _mediaPlayer.Play();
                         _systemControls.PlaybackStatus = MediaPlaybackStatus.Playing;
+                        SendBackgroundPlaybackState("Requested", _mediaPlayer);
                     }
                 }
                 catch { StartPlaybackAsync(); }
@@ -370,7 +394,11 @@ namespace AudioPlayerTask
                     _foregroundVideoMode = false;
                     _foregroundVideoPlaying = false;
                     _backgroundPlaybackRequested = false;
-                    _playbackGeneration++;
+                    // CanStartBackgroundPlayback also checks the desired state. Keep an
+                    // in-flight handoff generation alive so a quick Pause -> Resume can
+                    // continue the same open instead of racing a second resolver.
+                    if (!IsCurrentPlaybackStartInProgress())
+                        _playbackGeneration++;
                     _isRetrying = false;
                     StopCrossfadeMonitor();
                     _mediaPlayer.Pause();
@@ -490,10 +518,18 @@ namespace AudioPlayerTask
                 if (generation <= _lastTransportCommandGeneration)
                     generation = _lastTransportCommandGeneration + 1;
             }
-            if (generation < _lastPlaybackCommandGeneration ||
-                generation <= _lastTransportCommandGeneration)
+            // A retry of the command already applied is safe to ACK again. A truly
+            // older command must not receive the same ACK: the foreground would clear
+            // it even though a hardware command with a newer clock value won.
+            if (generation == _lastTransportCommandGeneration)
             {
                 SendTransportAccepted(generation);
+                return false;
+            }
+            if (generation < _lastPlaybackCommandGeneration ||
+                generation < _lastTransportCommandGeneration)
+            {
+                SendTransportRejected(generation);
                 return false;
             }
             _lastTransportCommandGeneration = generation;
@@ -511,10 +547,86 @@ namespace AudioPlayerTask
             catch { }
         }
 
+        private void SendForegroundVideoModeAccepted(long generation, bool active)
+        {
+            try
+            {
+                var message = new ValueSet {
+                    { "ForegroundVideoModeAccepted", active },
+                    { "PlaybackCommandGeneration", generation }
+                };
+                BackgroundMediaPlayer.SendMessageToForeground(message);
+            }
+            catch { }
+        }
+
+        private void SendTransportRejected(long generation)
+        {
+            try
+            {
+                long currentGeneration = Math.Max(_lastPlaybackCommandGeneration,
+                    _lastTransportCommandGeneration);
+                var message = new ValueSet {
+                    { "TransportRejected", "" },
+                    { "PlaybackCommandGeneration", generation },
+                    { "CurrentPlaybackCommandGeneration", currentGeneration }
+                };
+                BackgroundMediaPlayer.SendMessageToForeground(message);
+            }
+            catch { }
+        }
+
+        private void SendBackgroundPlaybackState(string state, MediaPlayer player)
+        {
+            try
+            {
+                long stateGeneration = Math.Max(_lastPlaybackCommandGeneration,
+                    _lastTransportCommandGeneration);
+                long stateSequence = Interlocked.Increment(
+                    ref _playbackStateSequence);
+                long positionTicks = 0;
+                try { positionTicks = player.Position.Ticks; } catch { }
+                bool intentOnly = state == "Requested";
+                string reportedState = state ?? "";
+                if (intentOnly)
+                {
+                    try { reportedState = player.CurrentState.ToString(); }
+                    catch { reportedState = ""; }
+                }
+                var message = new ValueSet {
+                    { "BackgroundPlaybackStateChanged", "" },
+                    { "BackgroundInstanceId", _backgroundInstanceId },
+                    { "PlaybackState", reportedState },
+                    { "PlaybackIntentOnly", intentOnly },
+                    { "PlaybackRequested", _backgroundPlaybackRequested },
+                    { "PlaybackVideoId", _currentLoadedVidId ?? "" },
+                    { "PlaybackPositionTicks", positionTicks },
+                    { "PlaybackStateGeneration", stateGeneration },
+                    { "PlaybackStateSequence", stateSequence }
+                };
+                if (_currentLoadedPlaylistRequestId > 0)
+                    message.Add("PlaylistRequestId", _currentLoadedPlaylistRequestId);
+                BackgroundMediaPlayer.SendMessageToForeground(message);
+            }
+            catch { }
+        }
+
         private bool CanStartBackgroundPlayback(int generation)
         {
             return generation == _playbackGeneration && !IsForegroundVideoMode() &&
                 _backgroundPlaybackRequested;
+        }
+
+        private bool IsCurrentPlaybackStartInProgress()
+        {
+            return _activePlaybackStartGeneration > 0 &&
+                _activePlaybackStartGeneration == _playbackGeneration;
+        }
+
+        private void CompletePlaybackStart(int generation)
+        {
+            if (_activePlaybackStartGeneration == generation)
+                _activePlaybackStartGeneration = -1;
         }
 
         private void ResetRetryState()
@@ -831,10 +943,19 @@ namespace AudioPlayerTask
         private async void StartPlaybackAsync()
         {
             int generation = ++_playbackGeneration;
+            _activePlaybackStartGeneration = generation;
             _playlistNeedsStart = true;
-            if (!CanStartBackgroundPlayback(generation)) return;
+            if (!CanStartBackgroundPlayback(generation))
+            {
+                CompletePlaybackStart(generation);
+                return;
+            }
             if (_currentTrackIndex < 0 || _currentTrackIndex >= _trackList.Count ||
-                _currentTrackIndex >= _videoIdList.Count) return;
+                _currentTrackIndex >= _videoIdList.Count)
+            {
+                CompletePlaybackStart(generation);
+                return;
+            }
 
             string vidId = _videoIdList[_currentTrackIndex];
 
@@ -842,6 +963,7 @@ namespace AudioPlayerTask
             if (vidId.StartsWith("LOCAL:"))
             {
                 PlayUrl(_trackList[_currentTrackIndex], vidId, generation);
+                CompletePlaybackStart(generation);
                 return;
             }
 
@@ -850,15 +972,26 @@ namespace AudioPlayerTask
             {
                 try
                 {
-                    if (!CanStartBackgroundPlayback(generation)) return;
+                    if (!CanStartBackgroundPlayback(generation))
+                    {
+                        CompletePlaybackStart(generation);
+                        return;
+                    }
                     _mediaPlayer.Position = _pendingStartPosition > TimeSpan.Zero ? _pendingStartPosition : TimeSpan.Zero;
-                    if (!CanStartBackgroundPlayback(generation)) return;
+                    if (!CanStartBackgroundPlayback(generation))
+                    {
+                        CompletePlaybackStart(generation);
+                        return;
+                    }
                     _mediaPlayer.Play();
+                    _currentLoadedPlaylistRequestId = _activePlaylistRequestId;
                     _playlistNeedsStart = false;
                     _systemControls.PlaybackStatus = MediaPlaybackStatus.Playing;
                     UpdateSystemMediaControls();
+                    SendBackgroundPlaybackState("Requested", _mediaPlayer);
                 }
                 catch { }
+                CompletePlaybackStart(generation);
                 return;
             }
 
@@ -868,6 +1001,7 @@ namespace AudioPlayerTask
                 string url = _resolvedUrl;
                 _resolvedUrl = null;
                 PlayUrl(url, vidId, generation);
+                CompletePlaybackStart(generation);
                 return;
             }
 
@@ -877,11 +1011,16 @@ namespace AudioPlayerTask
                 UpdateSystemMediaControls();
 
                 string directUrl = await ResolveViaInnerTubeDirectAsync(vidId);
-                if (!CanStartBackgroundPlayback(generation)) return;
+                if (!CanStartBackgroundPlayback(generation))
+                {
+                    CompletePlaybackStart(generation);
+                    return;
+                }
                 if (!string.IsNullOrEmpty(directUrl))
                 {
                     directUrl = PrepareStreamUrl(directUrl);
                     PlayUrl(directUrl, vidId, generation);
+                    CompletePlaybackStart(generation);
                     return;
                 }
             }
@@ -892,11 +1031,16 @@ namespace AudioPlayerTask
             {
                 fallbackUrl = await ResolveViaInnerTubeDirectAsync(vidId);
             }
-            if (!CanStartBackgroundPlayback(generation)) return;
+            if (!CanStartBackgroundPlayback(generation))
+            {
+                CompletePlaybackStart(generation);
+                return;
+            }
             if (!string.IsNullOrEmpty(fallbackUrl))
                 PlayUrl(PrepareStreamUrl(fallbackUrl), vidId, generation);
             else
                 ReportErrorToUI("No stream available");
+            CompletePlaybackStart(generation);
         }
 
         /// <summary>
@@ -928,12 +1072,13 @@ namespace AudioPlayerTask
 
                 UpdateSystemMediaControls();
                 _mediaPlayer.SetUriSource(new Uri(trackUrl));
+                _currentLoadedVidId = vidId;
+                _currentLoadedPlaylistRequestId = _activePlaylistRequestId;
                 if (!CanStartBackgroundPlayback(generation))
                 {
                     try { _mediaPlayer.Pause(); } catch { }
                     return;
                 }
-                _currentLoadedVidId = vidId;
                 _mediaPlayer.Play();
                 _playlistNeedsStart = false;
                 _systemControls.PlaybackStatus = MediaPlaybackStatus.Playing;
@@ -965,8 +1110,29 @@ namespace AudioPlayerTask
                 try { sender.Pause(); } catch { }
                 return;
             }
-            if (_pendingStartPosition <= TimeSpan.Zero) return;
-            try { sender.Position = _pendingStartPosition; }
+            string expectedVideoId = (_currentTrackIndex >= 0 &&
+                _currentTrackIndex < _videoIdList.Count)
+                ? _videoIdList[_currentTrackIndex] : "";
+            if (string.IsNullOrEmpty(expectedVideoId) ||
+                _currentLoadedVidId != expectedVideoId)
+            {
+                try { sender.Pause(); } catch { }
+                return;
+            }
+            if (_pendingStartPosition > TimeSpan.Zero)
+            {
+                try { sender.Position = _pendingStartPosition; }
+                catch { }
+            }
+            try
+            {
+                // Play() can arrive before MediaOpened on WP8.1. Re-apply the latest
+                // desired state after the seek so a queued Resume is not lost.
+                if (_backgroundPlaybackRequested && !IsForegroundVideoMode())
+                    sender.Play();
+                else
+                    sender.Pause();
+            }
             catch { }
         }
 
@@ -1307,6 +1473,7 @@ namespace AudioPlayerTask
                 {
                     _mediaPlayer.Position = TimeSpan.Zero;
                     _mediaPlayer.Play();
+                    SendBackgroundPlaybackState("Requested", _mediaPlayer);
                     return;
                 }
             }
@@ -1357,6 +1524,7 @@ namespace AudioPlayerTask
                 if (sender.CurrentState == MediaPlayerState.Playing)
                 {
                     _pendingStartPosition = TimeSpan.Zero;
+                    SendBackgroundPlaybackState("Playing", sender);
                     if (_crossfadeTimer == null) StartCrossfadeMonitor();
                     try { Windows.Storage.ApplicationData.Current.LocalSettings.Values["BackgroundWasPlaying"] = true; } catch { }
                     // [FIX-SOF] Only reset retryCount if NOT in a retry cycle
@@ -1375,6 +1543,7 @@ namespace AudioPlayerTask
                 }
                 else if (sender.CurrentState == MediaPlayerState.Paused)
                 {
+                    SendBackgroundPlaybackState("Paused", sender);
                     try { Windows.Storage.ApplicationData.Current.LocalSettings.Values["BackgroundWasPlaying"] = false; } catch { }
                     _systemControls.PlaybackStatus = MediaPlaybackStatus.Paused;
                     try
@@ -1387,6 +1556,8 @@ namespace AudioPlayerTask
                 }
                 else if (sender.CurrentState == MediaPlayerState.Closed || sender.CurrentState == MediaPlayerState.Stopped)
                 {
+                    SendBackgroundPlaybackState(sender.CurrentState == MediaPlayerState.Closed
+                        ? "Closed" : "Stopped", sender);
                     _systemControls.PlaybackStatus = MediaPlaybackStatus.Closed;
                     try
                     {
@@ -1402,7 +1573,10 @@ namespace AudioPlayerTask
         {
             if (IsForegroundVideoMode())
             {
-                AdvanceInternalTransportGeneration();
+                // VIDEO controls are forwarded to the foreground owner. They must not
+                // advance the IMAGE transport generation: during VIDEO -> IMAGE that
+                // would make the awaited playlist look older than the hardware command
+                // and could ACK a later Resume without applying it.
                 _foregroundVideoMode = true;
                 string command = null;
                 switch (args.Button)
@@ -1452,16 +1626,21 @@ namespace AudioPlayerTask
                         if (_playlistNeedsStart ||
                             _mediaPlayer.CurrentState == MediaPlayerState.Closed ||
                             _mediaPlayer.CurrentState == MediaPlayerState.Stopped)
-                            StartPlaybackAsync();
+                        {
+                            if (!IsCurrentPlaybackStartInProgress())
+                                StartPlaybackAsync();
+                        }
                         else
                             _mediaPlayer.Play();
                     }
                     catch { StartPlaybackAsync(); }
+                    SendBackgroundPlaybackState("Requested", _mediaPlayer);
                     break;
                 case SystemMediaTransportControlsButton.Pause:
                     AdvanceInternalTransportGeneration();
                     _backgroundPlaybackRequested = false;
-                    _playbackGeneration++;
+                    if (!IsCurrentPlaybackStartInProgress())
+                        _playbackGeneration++;
                     _isRetrying = false;
                     StopCrossfadeMonitor();
                     try
@@ -1470,6 +1649,7 @@ namespace AudioPlayerTask
                         _systemControls.PlaybackStatus = MediaPlaybackStatus.Paused;
                     }
                     catch { }
+                    SendBackgroundPlaybackState("Requested", _mediaPlayer);
                     break;
                 case SystemMediaTransportControlsButton.Stop:
                     AdvanceInternalTransportGeneration();

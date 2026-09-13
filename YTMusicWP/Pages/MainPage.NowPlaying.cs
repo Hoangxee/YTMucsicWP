@@ -329,7 +329,6 @@ namespace YTMusicWP
                         else
                         {
                             SendImageTransportCommand("PausePlaybackMessage");
-                            _appMediaPlayer.Pause();
                         }
                     }
                     catch
@@ -337,7 +336,6 @@ namespace YTMusicWP
                         try
                         {
                             SendImageTransportCommand("PausePlaybackMessage");
-                            _appMediaPlayer.Pause();
                         }
                         catch { }
                     }
