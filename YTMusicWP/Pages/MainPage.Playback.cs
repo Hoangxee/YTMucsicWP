@@ -170,15 +170,6 @@ namespace YTMusicWP
             if (searchResults.Contains(track)) activeList = searchResults;
             else if (favoriteTracks.Contains(track)) activeList = favoriteTracks;
             else if (downloadedTracks.Contains(track)) activeList = downloadedTracks;
-            else if (homeHistoryCarouselTracks.Contains(track)) activeList = homeHistoryCarouselTracks;
-            else if (historyQuickGridTracks.Contains(track)) activeList = historyQuickGridTracks;
-            else if (popTracks.Contains(track)) activeList = popTracks;
-            else if (lofiTracks.Contains(track)) activeList = lofiTracks;
-            else if (workoutTracks.Contains(track)) activeList = workoutTracks;
-            else if (genre5Tracks.Contains(track)) activeList = genre5Tracks;
-            else if (genre6Tracks.Contains(track)) activeList = genre6Tracks;
-            else if (genre7Tracks.Contains(track)) activeList = genre7Tracks;
-            else if (genre8Tracks.Contains(track)) activeList = genre8Tracks;
             else if (podcastTracks.Contains(track)) activeList = podcastTracks;
             else if (audiobookTracks.Contains(track)) activeList = audiobookTracks;
             else if (historyTracks.Contains(track)) activeList = historyTracks;
@@ -191,7 +182,6 @@ namespace YTMusicWP
             historyTracks.Insert(0, track);
             if (historyTracks.Count > 20) historyTracks.RemoveAt(historyTracks.Count - 1);
             var ignoredHistory = SaveHistoryAsyncTask();
-            RefreshHomeHistorySections();
 
             // Resolve URL cho bài hiện tại từ foreground (HttpClient mạnh hơn AudioTask)
             string resolvedUrl = "";
@@ -236,7 +226,7 @@ namespace YTMusicWP
                     urls[i] = resolvedUrl; 
                 else
                     urls[i] = t.VideoId.StartsWith("LOCAL:")
-                        ? "ms-appdata:///local/" + t.VideoId.Substring(6)
+                        ? GetLocalTrackUrl(t.VideoId)
                         : ""; 
                 titles[i] = t.Title ?? "";
                 artists[i] = t.ChannelName ?? "";
@@ -301,7 +291,7 @@ namespace YTMusicWP
             {
                 var t = currentQueueTracks[sliceStart + i];
                 urls[i] = t.VideoId.StartsWith("LOCAL:")
-                    ? "ms-appdata:///local/" + t.VideoId.Substring(6)
+                    ? GetLocalTrackUrl(t.VideoId)
                     : "";
                 titles[i] = t.Title ?? "";
                 artists[i] = t.ChannelName ?? "";

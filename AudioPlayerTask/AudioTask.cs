@@ -1057,7 +1057,38 @@ namespace AudioPlayerTask
             return url;
         }
 
+        // Downloads live in the Music library (shared with the system Music app); ms-appdata URIs
+        // can't reach it, so those tracks are passed as "musiclib:<folder>/<file>" and opened as a StorageFile.
+        private const string MusicLibraryUrlPrefix = "musiclib:";
+
         private void PlayUrl(string trackUrl, string vidId, int generation)
+        {
+            if (trackUrl != null && trackUrl.StartsWith(MusicLibraryUrlPrefix))
+            {
+                PlayMusicLibraryFile(trackUrl.Substring(MusicLibraryUrlPrefix.Length), vidId, generation);
+                return;
+            }
+            StartPlayback(() => _mediaPlayer.SetUriSource(new Uri(trackUrl)), vidId, generation);
+        }
+
+        private async void PlayMusicLibraryFile(string relativePath, string vidId, int generation)
+        {
+            Windows.Storage.StorageFile file;
+            try
+            {
+                int slash = relativePath.IndexOf('/');
+                var folder = await Windows.Storage.KnownFolders.MusicLibrary.GetFolderAsync(relativePath.Substring(0, slash));
+                file = await folder.GetFileAsync(relativePath.Substring(slash + 1));
+            }
+            catch (Exception ex)
+            {
+                ReportErrorToUI("File not found: " + ex.Message.Split('\n')[0]);
+                return;
+            }
+            StartPlayback(() => _mediaPlayer.SetFileSource(file), vidId, generation);
+        }
+
+        private void StartPlayback(Action setSource, string vidId, int generation)
         {
             if (!CanStartBackgroundPlayback(generation)) return;
             _mediaPlayer.AutoPlay = false;
@@ -1071,7 +1102,7 @@ namespace AudioPlayerTask
                 _mediaPlayer.Volume = normalize ? 0.75 : 1.0;
 
                 UpdateSystemMediaControls();
-                _mediaPlayer.SetUriSource(new Uri(trackUrl));
+                setSource();
                 _currentLoadedVidId = vidId;
                 _currentLoadedPlaylistRequestId = _activePlaylistRequestId;
                 if (!CanStartBackgroundPlayback(generation))

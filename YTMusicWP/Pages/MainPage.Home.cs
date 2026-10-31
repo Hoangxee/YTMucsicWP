@@ -1,10 +1,5 @@
-using Newtonsoft.Json.Linq;
 using System;
-using System.Collections.ObjectModel;
-using System.Linq;
-using System.Net.Http;
 using System.Threading.Tasks;
-using Windows.Storage;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 
@@ -12,335 +7,28 @@ namespace YTMusicWP
 {
     public sealed partial class MainPage
     {
-        private void RefreshHomeHistorySections()
-        {
-            if (historyTracks.Count > 0)
-            {
-                HomeHistorySection.Visibility = Visibility.Visible;
-                historyQuickGridTracks.Clear();
-                int countGrid = Math.Min(6, historyTracks.Count);
-                for (int i = 0; i < countGrid; i++)
-                {
-                    historyQuickGridTracks.Add(historyTracks[i]);
-                }
-
-                homeHistoryCarouselTracks.Clear();
-                int countCarousel = Math.Min(10, historyTracks.Count);
-                for (int i = 0; i < countCarousel; i++)
-                {
-                    homeHistoryCarouselTracks.Add(historyTracks[i]);
-                }
-
-                // Recently Played Artists — extract unique artists from history
-                RefreshRecentArtists();
-            }
-            else
-            {
-                HomeHistorySection.Visibility = Visibility.Collapsed;
-                HomeArtistsSection.Visibility = Visibility.Collapsed;
-            }
-        }
-
-        // [OPT-AV] Debounce: don't refresh artists more than once per 5 minutes
-        private DateTime _lastArtistRefreshTime = DateTime.MinValue;
-
-        private async void RefreshRecentArtists()
-        {
-            // Debounce: skip if called within last 5 minutes
-            if ((DateTime.Now - _lastArtistRefreshTime).TotalMinutes < 5) return;
-            _lastArtistRefreshTime = DateTime.Now;
-
-            try
-            {
-                var seenArtists = new System.Collections.Generic.HashSet<string>();
-                var artistItems = new System.Collections.Generic.List<YouTubeTrack>();
-
-                // [OPT-AV] Load cached avatars from LocalSettings
-                var localSettings = Windows.Storage.ApplicationData.Current.LocalSettings.Values;
-
-                foreach (var track in historyTracks)
-                {
-                    if (string.IsNullOrEmpty(track.ChannelName) || track.ChannelName == "Unknown") continue;
-                    string key = track.ChannelName.ToLowerInvariant();
-                    if (seenArtists.Contains(key)) continue;
-                    seenArtists.Add(key);
-
-                    // Check avatar cache first
-                    string cacheKey = "AvatarCache_" + key;
-                    string cachedAvatar = localSettings.ContainsKey(cacheKey) ? localSettings[cacheKey] as string : null;
-                    string cachedChannelKey = "AvatarChId_" + key;
-                    string cachedChannelId = localSettings.ContainsKey(cachedChannelKey) ? localSettings[cachedChannelKey] as string : null;
-
-                    artistItems.Add(new YouTubeTrack
-                    {
-                        VideoId = !string.IsNullOrEmpty(cachedChannelId) ? "CHANNEL:" + cachedChannelId
-                                : !string.IsNullOrEmpty(track.ChannelId) ? "CHANNEL:" + track.ChannelId : "",
-                        Title = track.ChannelName,
-                        ChannelName = track.ChannelName,
-                        ChannelId = cachedChannelId ?? track.ChannelId,
-                        ThumbnailUrl = !string.IsNullOrEmpty(cachedAvatar) ? cachedAvatar : GetSquareThumbnail(track.ThumbnailUrl)
-                    });
-
-                    if (artistItems.Count >= 10) break;
-                }
-
-                if (artistItems.Count >= 2)
-                {
-                    HomeArtistsSection.Visibility = Visibility.Visible;
-                    HomeArtistsCarousel.ItemsSource = artistItems;
-
-                    // Only fetch avatars for artists that DON'T have a cached avatar
-                    var uncachedArtists = new System.Collections.Generic.List<int>();
-                    for (int i = 0; i < artistItems.Count; i++)
-                    {
-                        string cacheKey = "AvatarCache_" + artistItems[i].Title.ToLowerInvariant();
-                        if (!localSettings.ContainsKey(cacheKey))
-                            uncachedArtists.Add(i);
-                    }
-
-                    // Fetch only uncached avatars (batched 3 at a time)
-                    for (int i = 0; i < uncachedArtists.Count; i += 3)
-                    {
-                        var batch = new System.Collections.Generic.List<Task>(3);
-                        for (int j = i; j < Math.Min(i + 3, uncachedArtists.Count); j++)
-                        {
-                            int idx = uncachedArtists[j];
-                            var artist = artistItems[idx];
-                            batch.Add(Task.Run(async () =>
-                            {
-                                try
-                                {
-                                    var searchResults = await InnerTubeClient.SearchAsync(artist.Title, 5);
-                                    var artistMatch = searchResults.FirstOrDefault(r =>
-                                        r.VideoId != null && r.VideoId.StartsWith("CHANNEL:") &&
-                                        r.Title.Equals(artist.Title, StringComparison.OrdinalIgnoreCase));
-
-                                    if (artistMatch != null)
-                                    {
-                                        string ytmChannelId = artistMatch.VideoId.Replace("CHANNEL:", "");
-                                        string avatarUrl = GetArtistAvatar(artistMatch.ThumbnailUrl);
-                                        if (!string.IsNullOrEmpty(avatarUrl))
-                                        {
-                                            // Save to cache
-                                            string ck = "AvatarCache_" + artist.Title.ToLowerInvariant();
-                                            string ckId = "AvatarChId_" + artist.Title.ToLowerInvariant();
-                                            localSettings[ck] = avatarUrl;
-                                            localSettings[ckId] = ytmChannelId;
-
-                                            await Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Low, () =>
-                                            {
-                                                artistItems[idx].ThumbnailUrl = avatarUrl;
-                                                artistItems[idx].ChannelId = ytmChannelId;
-                                            });
-                                        }
-                                    }
-                                    else if (!string.IsNullOrEmpty(artist.ChannelId))
-                                    {
-                                        var searchResults2 = await InnerTubeClient.SearchAsync(artist.Title + " artist", 3);
-                                        var fallbackMatch = searchResults2.FirstOrDefault(r =>
-                                            r.VideoId != null && r.VideoId.StartsWith("CHANNEL:"));
-                                        if (fallbackMatch != null && !string.IsNullOrEmpty(fallbackMatch.ThumbnailUrl))
-                                        {
-                                            string fallbackAvatar = GetArtistAvatar(fallbackMatch.ThumbnailUrl);
-                                            string ck = "AvatarCache_" + artist.Title.ToLowerInvariant();
-                                            localSettings[ck] = fallbackAvatar;
-
-                                            await Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Low, () =>
-                                            {
-                                                artistItems[idx].ThumbnailUrl = fallbackAvatar;
-                                            });
-                                        }
-                                    }
-                                }
-                                catch { }
-                            }));
-                        }
-                        foreach (var searchTask in batch)
-                        {
-                            await searchTask;
-                            await Task.Delay(500); // 500ms delay between each artist search to avoid API spam
-                        }
-                        
-                        await Task.Delay(1000); // 1s rest between batches
-                    }
-                }
-                else
-                {
-                    HomeArtistsSection.Visibility = Visibility.Collapsed;
-                }
-            }
-            catch { HomeArtistsSection.Visibility = Visibility.Collapsed; }
-        }
-
-        private void RecentArtist_ItemClick(object sender, ItemClickEventArgs e)
-        {
-            var track = e.ClickedItem as YouTubeTrack;
-            if (track == null) return;
-            // trustChannelId=true — channelId was already resolved by avatar fetch
-            OpenArtistProfile(track.ChannelId, track.Title, true);
-        }
-
-        private async Task LoadHomeRecommendations()
+        private async Task LoadHomeTrendingAsync()
         {
             HomeLoading.Visibility = Visibility.Visible;
-
-            // ═══════════════════════════════════════════════════
-            // PRIMARY: YouTube Music Home (FE_music_home)
-            // Real recommendations, new releases, trending — all from YT Music algorithm
-            // ═══════════════════════════════════════════════════
             try
             {
-                var homeSections = await InnerTubeClient.BrowseHomeAsync();
-                if (homeSections != null && homeSections.Count > 0)
+                var trending = await InnerTubeClient.BrowseTrendingAsync();
+                homeTracks.Clear();
+                foreach (var t in trending)
                 {
-                    // Map API sections to UI carousels (up to 8)
-                    var carousels = new[] { homeTracks, popTracks, lofiTracks, workoutTracks, genre5Tracks, genre6Tracks, genre7Tracks, genre8Tracks };
-                    var titles = new[] { HomeTrendingTitle, HomePopTitle, HomeChillTitle, HomeWorkoutTitle, HomeGenre5Title, HomeGenre6Title, HomeGenre7Title, HomeGenre8Title };
-
-                    for (int i = 0; i < Math.Min(homeSections.Count, 8); i++)
-                    {
-                        titles[i].Text = homeSections[i].Title;
-                        foreach (var t in homeSections[i].Tracks)
-                        {
-                            carousels[i].Add(t);
-                        }
-                    }
-
-
-                    if (homeSections.Count > 0)
-                    {
-                        _currentHomeQuery = homeSections[0].Title;
-                        var topTracks = homeSections.SelectMany(s => s.Tracks).Where(t => IsMusicTrack(t)).Take(5).ToList();
-                        YTMusicWP.Services.TileService.UpdateRecommendations(topTracks, favoriteTracks, historyTracks);
-                    }
-                    HomeLoading.Visibility = Visibility.Collapsed;
-                    return;
+                    if (IsMusicTrack(t)) homeTracks.Add(t);
                 }
+
+                if (homeTracks.Count > 0)
+                    YTMusicWP.Services.TileService.UpdateRecommendations(homeTracks, favoriteTracks, historyTracks);
+                else
+                    ShowToast("Couldn't load Trending");
             }
-            catch { }
-
-            // ═══════════════════════════════════════════════════
-            // FALLBACK: Search-based recommendations (if BrowseHome fails)
-            // ═══════════════════════════════════════════════════
-            string region = InnerTubeClient.CurrentRegion;
-            string year = DateTime.Now.Year.ToString();
-
-            string[] queries;
-            string[] fallbackTitles;
-
-            switch (region)
+            catch
             {
-                case "VN":
-                    queries = new[] {
-                        "nhạc Việt hot " + year,
-                        "nhạc trẻ hay nhất " + year,
-                        "bolero trữ tình chọn lọc",
-                        "rap Việt " + year,
-                        "V-pop acoustic",
-                        "nhạc phim Việt hay nhất",
-                        "EDM Việt mix",
-                        "nhạc indie Việt"
-                    };
-                    fallbackTitles = new[] {
-                        "Made for you", "Nhạc trẻ", "Bolero - Trữ tình", "Rap Việt",
-                        "Acoustic Việt", "Nhạc phim Việt", "EDM Việt Mix", "Indie Việt"
-                    };
-                    break;
-                case "KR":
-                    queries = new[] {
-                        "K-pop trending " + year,
-                        "K-pop girl group hits",
-                        "K-drama OST " + year,
-                        "K-pop boy group hits",
-                        "K-R&B chill",
-                        "K-pop dance hits",
-                        "Korean indie",
-                        "K-hip hop " + year
-                    };
-                    fallbackTitles = new[] {
-                        "Made for you", "Girl Group Hits", "K-Drama OST", "Boy Group Hits",
-                        "K-R&B Chill", "K-Pop Dance", "Korean Indie", "K-Hip Hop"
-                    };
-                    break;
-                case "JP":
-                    queries = new[] {
-                        "J-pop trending " + year,
-                        "Anime OST " + year,
-                        "J-pop chill vibes",
-                        "J-rock hits",
-                        "Vocaloid popular",
-                        "city pop Japanese",
-                        "anime opening " + year,
-                        "Japanese lofi hip hop"
-                    };
-                    fallbackTitles = new[] {
-                        "Made for you", "Anime OST", "Chill vibes", "J-Rock",
-                        "Vocaloid", "City Pop", "Anime Opening", "Japanese Lofi"
-                    };
-                    break;
-                default:
-                    queries = new[] {
-                        "top hits " + year,
-                        "pop hits " + year,
-                        "lofi chill beats relax",
-                        "workout gym motivation music",
-                        "hip hop rap hits " + year,
-                        "R&B soul hits",
-                        "rock classics greatest hits",
-                        "indie alternative " + year
-                    };
-                    fallbackTitles = new[] {
-                        "Made for you", "Pop Hits", "Chill vibes", "Workout Motivation",
-                        "Hip-Hop & Rap", "R&B & Soul", "Rock Classics", "Indie & Alt"
-                    };
-                    break;
+                ShowToast("Couldn't load Trending");
             }
-
-            HomeTrendingTitle.Text = fallbackTitles[0];
-            HomePopTitle.Text = fallbackTitles[1];
-            HomeChillTitle.Text = fallbackTitles[2];
-            HomeWorkoutTitle.Text = fallbackTitles[3];
-            HomeGenre5Title.Text = fallbackTitles[4];
-            HomeGenre6Title.Text = fallbackTitles[5];
-            HomeGenre7Title.Text = fallbackTitles[6];
-            HomeGenre8Title.Text = fallbackTitles[7];
-
-            _currentHomeQuery = queries[0];
-
-            // Load sequentially to avoid rate limiting
-            var trending = await FetchMusicList(queries[0], "", "songs");
-            if (trending != null) foreach (var t in trending) { if (IsMusicTrack(t)) homeTracks.Add(t); }
-            
-            var pop = await FetchMusicList(queries[1], "", "songs");
-            if (pop != null) foreach (var t in pop) { if (IsMusicTrack(t)) popTracks.Add(t); }
-
-            var chill = await FetchMusicList(queries[2], "", "songs");
-            if (chill != null) foreach (var t in chill) { if (IsMusicTrack(t)) lofiTracks.Add(t); }
-
             HomeLoading.Visibility = Visibility.Collapsed;
-            YTMusicWP.Services.TileService.UpdateRecommendations(homeTracks, favoriteTracks, historyTracks);
-
-            // Background load the rest sequentially with delay to be safe
-            var _ = Task.Run(async () =>
-            {
-                await Task.Delay(1500);
-                var workout = await FetchMusicList(queries[3], "", "songs");
-                var genre5 = await FetchMusicList(queries[4], "", "songs");
-                
-                await Task.Delay(1500);
-                var genre6 = await FetchMusicList(queries[5], "", "songs");
-                var genre7 = await FetchMusicList(queries[6], "", "songs");
-                var genre8 = await FetchMusicList(queries[7], "", "songs");
-
-                var __ = Windows.ApplicationModel.Core.CoreApplication.MainView.CoreWindow.Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
-                {
-                    if (workout != null) foreach (var t in workout) { if (IsMusicTrack(t)) workoutTracks.Add(t); }
-                    if (genre5 != null) foreach (var t in genre5) { if (IsMusicTrack(t)) genre5Tracks.Add(t); }
-                    if (genre6 != null) foreach (var t in genre6) { if (IsMusicTrack(t)) genre6Tracks.Add(t); }
-                    if (genre7 != null) foreach (var t in genre7) { if (IsMusicTrack(t)) genre7Tracks.Add(t); }
-                    if (genre8 != null) foreach (var t in genre8) { if (IsMusicTrack(t)) genre8Tracks.Add(t); }
-                });
-            });
         }
 
         private static bool IsMusicTrack(YouTubeTrack t)
@@ -351,50 +39,6 @@ namespace YTMusicWP
             string title = (t.Title ?? "").ToLowerInvariant();
             if (title.Contains("(storyteller)") || title.Contains("full audiobook") || title.Contains("full audio book")) return false;
             return true;
-        }
-
-        private void MoodChill_Tapped(object sender, Windows.UI.Xaml.Input.TappedRoutedEventArgs e)
-        {
-            SwitchTab(1);
-            SearchBox.TextChanged -= SearchBox_TextChanged;
-            SearchBox.Text = "lofi chill beats relax";
-            SearchBox.TextChanged += SearchBox_TextChanged;
-            _typingTimer.Stop();
-            SuggestionPopup.Visibility = Visibility.Collapsed;
-            SearchButton_Click(null, null);
-        }
-
-        private void MoodFocus_Tapped(object sender, Windows.UI.Xaml.Input.TappedRoutedEventArgs e)
-        {
-            SwitchTab(1);
-            SearchBox.TextChanged -= SearchBox_TextChanged;
-            SearchBox.Text = "focus study concentration music";
-            SearchBox.TextChanged += SearchBox_TextChanged;
-            _typingTimer.Stop();
-            SuggestionPopup.Visibility = Visibility.Collapsed;
-            SearchButton_Click(null, null);
-        }
-
-        private void MoodEnergy_Tapped(object sender, Windows.UI.Xaml.Input.TappedRoutedEventArgs e)
-        {
-            SwitchTab(1);
-            SearchBox.TextChanged -= SearchBox_TextChanged;
-            SearchBox.Text = "energy workout pump up hits";
-            SearchBox.TextChanged += SearchBox_TextChanged;
-            _typingTimer.Stop();
-            SuggestionPopup.Visibility = Visibility.Collapsed;
-            SearchButton_Click(null, null);
-        }
-
-        private void MoodSad_Tapped(object sender, Windows.UI.Xaml.Input.TappedRoutedEventArgs e)
-        {
-            SwitchTab(1);
-            SearchBox.TextChanged -= SearchBox_TextChanged;
-            SearchBox.Text = "sad emotional songs";
-            SearchBox.TextChanged += SearchBox_TextChanged;
-            _typingTimer.Stop();
-            SuggestionPopup.Visibility = Visibility.Collapsed;
-            SearchButton_Click(null, null);
         }
 
         // ==========================================

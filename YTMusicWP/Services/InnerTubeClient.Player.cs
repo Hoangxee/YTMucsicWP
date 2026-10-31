@@ -16,7 +16,7 @@ namespace YTMusicWP
         private static string _cachedCaptionsVideoId;
         private static JToken _cachedCaptionsData;
 
-        public static async Task<string> ResolveStreamUrlAsync(string videoId, bool preferHighestVideo = false)
+        public static async Task<string> ResolveStreamUrlAsync(string videoId, bool preferHighestVideo = false, bool preferHighestAudio = false)
         {
             LastResolveDebug = "";
             if (string.IsNullOrEmpty(videoId) || videoId.StartsWith("LOCAL:") || videoId.StartsWith("CHANNEL:") || videoId.StartsWith("PLAYLIST:"))
@@ -124,8 +124,44 @@ namespace YTMusicWP
                         }
                     }
 
-                    // 2. Fallback xuống adaptiveFormats (có thể bị bóp/403)
                     var formats = data["streamingData"]?["adaptiveFormats"];
+
+                    // Only stereo AAC (mp4a) is decodable by MediaTranscoder on WP8.1 — skip Opus/WebM,
+                    // AC-3/EC-3 and 5.1 AAC (itags 256/258/327). Non-DRC ("stable volume") variants first.
+                    if (preferHighestAudio && formats != null)
+                    {
+                        var bestAudio = formats
+                            .Where(f => !string.IsNullOrEmpty(f["url"]?.ToString()) &&
+                                        (f["mimeType"]?.ToString() ?? "").StartsWith("audio/mp4") &&
+                                        (f["mimeType"]?.ToString() ?? "").Contains("mp4a") &&
+                                        (f["audioChannels"]?.Value<int>() ?? 2) <= 2)
+                            .OrderBy(f => (f["isDrc"]?.Value<bool>() ?? false) ? 1 : 0)
+                            .ThenByDescending(f => f["bitrate"]?.Value<long>() ?? 0)
+                            .FirstOrDefault();
+                        if (bestAudio != null)
+                        {
+                            LastResolveDebug += " bestAudio:i" + (bestAudio["itag"]?.ToString() ?? "?");
+                            return PrepareStreamUrl(bestAudio["url"].ToString());
+                        }
+                    }
+
+                    // Adaptive formats often come back without a url; progressive itag 18 (AAC in MP4) still has one.
+                    if (preferHighestAudio && fmts2 != null)
+                    {
+                        var progressive = fmts2
+                            .Where(f => !string.IsNullOrEmpty(f["url"]?.ToString()) &&
+                                        (f["mimeType"]?.ToString() ?? "").StartsWith("video/mp4") &&
+                                        (f["mimeType"]?.ToString() ?? "").Contains("mp4a"))
+                            .OrderByDescending(f => f["itag"]?.Value<int>() == 18 ? 1 : 0)
+                            .FirstOrDefault();
+                        if (progressive != null)
+                        {
+                            LastResolveDebug += " progAudio:i" + (progressive["itag"]?.ToString() ?? "?");
+                            return PrepareStreamUrl(progressive["url"].ToString());
+                        }
+                    }
+
+                    // 2. Fallback xuống adaptiveFormats (có thể bị bóp/403)
                     if (formats != null)
                     {
                         foreach (int targetItag in preferredItags)

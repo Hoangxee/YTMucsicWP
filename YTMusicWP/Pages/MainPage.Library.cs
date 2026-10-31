@@ -632,9 +632,6 @@ namespace YTMusicWP
         private void ClearRecentHistory_Click(object sender, RoutedEventArgs e)
         {
             historyTracks.Clear();
-            historyQuickGridTracks.Clear();
-            homeHistoryCarouselTracks.Clear();
-            HomeHistorySection.Visibility = Visibility.Collapsed;
             var ignored = SaveHistoryAsyncTask();
             var ignoredStorage = UpdateStorageDisplayAsync();
             ShowToast("Recent history cleared!");
@@ -701,12 +698,6 @@ namespace YTMusicWP
             BottomSheetGoToRadio_Click(null, null);
         }
 
-        private async void MenuDownload_Click(object sender, RoutedEventArgs e)
-        {
-            var track = (sender as MenuFlyoutItem)?.DataContext as YouTubeTrack;
-            if (track != null) await DownloadTrackAsync(track);
-        }
-
         private async void MenuFavorite_Click(object sender, RoutedEventArgs e)
         {
             var track = (sender as MenuFlyoutItem)?.DataContext as YouTubeTrack;
@@ -748,7 +739,7 @@ namespace YTMusicWP
             {
                 try
                 {
-                    StorageFile file = await ApplicationData.Current.LocalFolder.GetFileAsync(track.VideoId.Substring(6));
+                    StorageFile file = await GetLocalTrackFileAsync(track.VideoId);
                     await file.DeleteAsync();
 
                     downloadedTracks.Remove(track);
@@ -761,7 +752,6 @@ namespace YTMusicWP
                     {
                         historyTracks.Remove(hist);
                         var ignoredHist = SaveHistoryAsyncTask();
-                        RefreshHomeHistorySections();
                     }
 
                     foreach (var playlist in userPlaylists)
@@ -781,8 +771,6 @@ namespace YTMusicWP
             }
         }
 
-        private async void DownloadButton_Click(object sender, RoutedEventArgs e) { if (currentTrack != null) await DownloadTrackAsync(currentTrack); }
-
         public async Task CleanStaleDownloadsAsync()
         {
             try
@@ -800,63 +788,259 @@ namespace YTMusicWP
             catch { }
         }
 
-        private async Task DownloadTrackAsync(YouTubeTrack track)
+        private static string GetSafeFileTitle(YouTubeTrack track)
         {
-            if (track == null || string.IsNullOrEmpty(track.VideoId) || track.VideoId.StartsWith("LOCAL:")) return;
-            if (!IsInternetAvailable()) { ShowToast("Internet required to download"); return; }
+            string title = string.IsNullOrEmpty(track.Title) ? track.VideoId : track.Title;
+            return string.Join("", title.Split(System.IO.Path.GetInvalidFileNameChars()));
+        }
 
+        private async Task DownloadStreamToFileAsync(string streamUrl, StorageFile destinationFile, string title)
+        {
+            BackgroundDownloader downloader = new BackgroundDownloader();
+            DownloadOperation download = downloader.CreateDownload(new Uri(streamUrl), destinationFile);
+
+            DownloadStatusText.Text = "Downloading: " + title + Mp3QueueSuffix();
+
+            var progressCallback = new Progress<DownloadOperation>(op =>
+            {
+                if (op.Progress.TotalBytesToReceive > 0)
+                {
+                    DownloadProgressBar.IsIndeterminate = false;
+                    double progress = (double)op.Progress.BytesReceived / op.Progress.TotalBytesToReceive * 100;
+                    DownloadProgressBar.Value = progress;
+                    DownloadStatusText.Text = "Downloading: " + title + " (" + (int)progress + "%)" + Mp3QueueSuffix();
+                }
+            });
+
+            await download.StartAsync().AsTask(progressCallback);
+        }
+
+        private static bool IsDownloadableTrack(YouTubeTrack track)
+        {
+            return track != null && !string.IsNullOrEmpty(track.VideoId) &&
+                   !track.VideoId.StartsWith("LOCAL:") && !track.VideoId.StartsWith("CHANNEL:") && !track.VideoId.StartsWith("PLAYLIST:");
+        }
+
+        // All queue access happens on the UI thread, so no locking is needed.
+        private readonly List<YouTubeTrack> _mp3Queue = new List<YouTubeTrack>();
+        private YouTubeTrack _mp3Current;
+
+        private string Mp3QueueSuffix()
+        {
+            return _mp3Queue.Count > 0 ? "  · " + _mp3Queue.Count + " queued" : "";
+        }
+
+        private async Task DownloadTrackAsMp3Async(YouTubeTrack track)
+        {
+            if (!IsDownloadableTrack(track)) return;
+            if (!IsInternetAvailable()) { ShowToast("Internet required to download"); return; }
+            if ((_mp3Current != null && _mp3Current.VideoId == track.VideoId) || _mp3Queue.Any(t => t.VideoId == track.VideoId))
+            {
+                ShowToast("Already downloading: " + track.Title);
+                return;
+            }
+
+            _mp3Queue.Add(track);
+            if (_mp3Current != null)
+            {
+                ShowToast("Queued (" + _mp3Queue.Count + "): " + track.Title);
+                return;
+            }
+
+            while (_mp3Queue.Count > 0)
+            {
+                _mp3Current = _mp3Queue[0];
+                _mp3Queue.RemoveAt(0);
+                await DownloadOneMp3Async(_mp3Current);
+            }
+            _mp3Current = null;
+        }
+
+        // Debug builds only: LocalFolder\download_log.txt, readable over USB with ISETool.
+        private static async Task LogDownloadAsync(string line)
+        {
+#if DEBUG
+            try
+            {
+                StorageFile log = await ApplicationData.Current.LocalFolder.CreateFileAsync(
+                    "download_log.txt", CreationCollisionOption.OpenIfExists);
+                await FileIO.AppendTextAsync(log, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + line + "\r\n");
+            }
+            catch { }
+#else
+            await Task.FromResult(0);
+#endif
+        }
+
+#if DEBUG
+        // Debug builds: a "videoId|title" line in LocalFolder\debug_download.txt (pushed over USB with
+        // ISETool) starts an MP3 download on launch, so the flow can be exercised without touching the phone.
+        private async Task RunDebugDownloadTriggerAsync()
+        {
+            try
+            {
+                StorageFile trigger = await ApplicationData.Current.LocalFolder.GetFileAsync("debug_download.txt");
+                string line = (await FileIO.ReadTextAsync(trigger)).Trim();
+                await trigger.DeleteAsync();
+                string[] parts = line.Split(new[] { '|' }, 2);
+                await LogDownloadAsync("DEBUG trigger: " + line);
+                await DownloadTrackAsMp3Async(new YouTubeTrack
+                {
+                    VideoId = parts[0].Trim(),
+                    Title = parts.Length > 1 ? parts[1].Trim() : parts[0].Trim(),
+                    ChannelName = "Debug"
+                });
+            }
+            catch (System.IO.FileNotFoundException) { }
+            catch (Exception ex) { await LogDownloadAsync("DEBUG trigger error: " + ex.Message); }
+        }
+#endif
+
+        private async Task DownloadOneMp3Async(YouTubeTrack track)
+        {
+            StorageFile sourceFile = null;
+            StorageFile mp3File = null;
+            string step = "resolve";
+            await LogDownloadAsync("START " + track.VideoId + " \"" + track.Title + "\"");
             try
             {
                 DownloadStatusBar.Visibility = Visibility.Visible;
-                DownloadStatusText.Text = "Resolving: " + track.Title;
+                DownloadStatusText.Text = "Resolving best audio: " + track.Title + Mp3QueueSuffix();
                 DownloadProgressBar.Value = 0;
                 DownloadProgressBar.IsIndeterminate = true;
 
-                // Dùng InnerTube để lấy stream URL thay vì proxy (proxy đã bị chặn)
-                string streamUrl = await InnerTubeClient.ResolveStreamUrlAsync(track.VideoId);
+                string streamUrl = await InnerTubeClient.ResolveStreamUrlAsync(track.VideoId, false, true);
+                await LogDownloadAsync("  resolve:" + InnerTubeClient.LastResolveDebug + " ok=" + !string.IsNullOrEmpty(streamUrl));
                 if (string.IsNullOrEmpty(streamUrl))
                 {
                     DownloadStatusBar.Visibility = Visibility.Collapsed;
-                    ShowToast("Cannot resolve audio URL for this track");
+                    ShowToast("Cannot resolve audio URL:" + InnerTubeClient.LastResolveDebug);
                     return;
                 }
 
-                string safeTitle = string.Join("", track.Title.Split(System.IO.Path.GetInvalidFileNameChars()));
-                StorageFile destinationFile = await ApplicationData.Current.LocalFolder.CreateFileAsync(safeTitle + ".m4a", CreationCollisionOption.ReplaceExisting);
+                step = "download";
+                string safeTitle = GetSafeFileTitle(track);
+                // Subfolder so Settings' temp cleanup (top-level files only) can't delete a running job's files.
+                StorageFolder workFolder = await ApplicationData.Current.TemporaryFolder.CreateFolderAsync(
+                    "mp3work", CreationCollisionOption.OpenIfExists);
+                sourceFile = await workFolder.CreateFileAsync(
+                    "mp3src_" + track.VideoId + ".m4a", CreationCollisionOption.ReplaceExisting);
 
-                BackgroundDownloader downloader = new BackgroundDownloader();
-                DownloadOperation download = downloader.CreateDownload(new Uri(streamUrl), destinationFile);
+                await DownloadStreamToFileAsync(streamUrl, sourceFile, track.Title);
+                await LogDownloadAsync("  downloaded bytes=" + (await sourceFile.GetBasicPropertiesAsync()).Size);
 
-                DownloadStatusText.Text = "Downloading: " + track.Title;
+                step = "transcode";
+                DownloadProgressBar.IsIndeterminate = true;
+                DownloadStatusText.Text = "Converting to MP3: " + track.Title;
 
-                var progressCallback = new Progress<DownloadOperation>(op =>
+                // Try MP3 first; the phone's encoder may reject some MP3 settings ("InvalidProfile"), so fall
+                // back to an audio-only AAC .m4a, which also strips the video track of progressive sources.
+                var quality = Windows.Media.MediaProperties.AudioEncodingQuality.High;
+                var mp3_320 = Windows.Media.MediaProperties.MediaEncodingProfile.CreateMp3(quality);
+                mp3_320.Audio.Bitrate = 320000;
+                var attempts = new[]
                 {
-                    if (op.Progress.TotalBytesToReceive > 0)
-                    {
-                        DownloadProgressBar.IsIndeterminate = false;
-                        double progress = (double)op.Progress.BytesReceived / op.Progress.TotalBytesToReceive * 100;
-                        DownloadProgressBar.Value = progress;
-                        DownloadStatusText.Text = "Downloading: " + track.Title + " (" + (int)progress + "%)";
-                    }
-                });
+                    Tuple.Create("mp3-320k", ".mp3", mp3_320),
+                    Tuple.Create("mp3-high", ".mp3", Windows.Media.MediaProperties.MediaEncodingProfile.CreateMp3(quality)),
+                    Tuple.Create("m4a-high", ".m4a", Windows.Media.MediaProperties.MediaEncodingProfile.CreateM4a(quality)),
+                };
 
-                await download.StartAsync().AsTask(progressCallback);
+                bool converted = false;
+                string outputExtension = "";
+                string transcodeFailure = "";
+                foreach (var attempt in attempts)
+                {
+                    try
+                    {
+                        if (mp3File != null) { try { await mp3File.DeleteAsync(); } catch { } }
+                        mp3File = await workFolder.CreateFileAsync(
+                            "mp3out_" + track.VideoId + attempt.Item2, CreationCollisionOption.ReplaceExisting);
+
+                        var transcoder = new Windows.Media.Transcoding.MediaTranscoder();
+                        var prepared = await transcoder.PrepareFileTranscodeAsync(sourceFile, mp3File, attempt.Item3);
+                        if (!prepared.CanTranscode)
+                        {
+                            transcodeFailure += attempt.Item1 + ":" + prepared.FailureReason + " ";
+                            continue;
+                        }
+                        string label = attempt.Item2 == ".mp3" ? "MP3" : "M4A";
+                        var transcodeProgress = new Progress<double>(percent =>
+                        {
+                            DownloadProgressBar.IsIndeterminate = false;
+                            DownloadProgressBar.Value = percent;
+                            DownloadStatusText.Text = "Converting to " + label + ": " + track.Title + " (" + (int)percent + "%)" + Mp3QueueSuffix();
+                        });
+                        await prepared.TranscodeAsync().AsTask(transcodeProgress);
+                        converted = true;
+                        outputExtension = attempt.Item2;
+                        await LogDownloadAsync("  transcode ok profile=" + attempt.Item1 + " bytes=" + (await mp3File.GetBasicPropertiesAsync()).Size);
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        transcodeFailure += attempt.Item1 + ":0x" + ex.HResult.ToString("X8") + " ";
+                    }
+                }
+                if (!converted) await LogDownloadAsync("  transcode failed: " + transcodeFailure);
+
+                step = "musicFolder";
+                StorageFolder musicFolder = await GetMusicDownloadFolderAsync();
+                await LogDownloadAsync("  musicFolder=" + musicFolder.Path);
+                step = "move";
+                if (converted)
+                {
+                    await TagMp3Async(mp3File, track);
+                    await mp3File.MoveAsync(musicFolder, safeTitle + outputExtension, NameCollisionOption.ReplaceExisting);
+                    await LogDownloadAsync("  saved " + mp3File.Path);
+                    mp3File = null;
+                    DownloadStatusText.Text = "Saved to Music: " + track.Title;
+                }
+                else
+                {
+                    await sourceFile.MoveAsync(musicFolder, safeTitle + ".m4a", NameCollisionOption.ReplaceExisting);
+                    await LogDownloadAsync("  saved " + sourceFile.Path);
+                    sourceFile = null;
+                    DownloadStatusText.Text = "Saved as M4A: " + track.Title;
+                    ShowToast("Audio conversion failed (" + transcodeFailure.Trim() + ") — saved original file, may not show in Music app");
+                }
 
                 DownloadProgressBar.IsIndeterminate = false;
                 DownloadProgressBar.Value = 100;
-
-                DownloadStatusText.Text = "Download complete: " + track.Title;
 
                 await LoadDownloadsAsync();
 
                 await Task.Delay(3000);
                 DownloadStatusBar.Visibility = Visibility.Collapsed;
             }
-            catch
+            catch (Exception ex)
             {
+                await LogDownloadAsync("  FAILED at " + step + ": 0x" + ex.HResult.ToString("X8") + " " + ex.Message);
                 DownloadStatusBar.Visibility = Visibility.Collapsed;
-                ShowToast("Download failed or cancelled.");
+                ShowToast("MP3 download failed (" + step + "): 0x" + ex.HResult.ToString("X8"));
             }
+            finally
+            {
+                if (sourceFile != null) { try { await sourceFile.DeleteAsync(); } catch { } }
+                if (mp3File != null) { try { await mp3File.DeleteAsync(); } catch { } }
+            }
+        }
+
+        private static async Task TagMp3Async(StorageFile file, YouTubeTrack track)
+        {
+            try
+            {
+                var props = await file.Properties.GetMusicPropertiesAsync();
+                props.Title = track.Title ?? "";
+                props.Artist = track.ChannelName ?? "";
+                await props.SavePropertiesAsync();
+            }
+            catch { }
+        }
+
+        private async void MenuDownloadMp3_Click(object sender, RoutedEventArgs e)
+        {
+            var track = (sender as MenuFlyoutItem)?.DataContext as YouTubeTrack;
+            if (track != null) await DownloadTrackAsMp3Async(track);
         }
 
         // ══════════════════════════════════════════

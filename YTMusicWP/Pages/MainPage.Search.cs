@@ -179,10 +179,22 @@ namespace YTMusicWP
             }
         }
 
+        private bool _allowSearchBoxProgrammaticFocus;
+
         private void SearchClear_Click(object sender, Windows.UI.Xaml.Input.TappedRoutedEventArgs e)
         {
             SearchBox.Text = "";
-            SearchBox.Focus(FocusState.Programmatic);
+            _allowSearchBoxProgrammaticFocus = true;
+            if (!SearchBox.Focus(FocusState.Programmatic)) _allowSearchBoxProgrammaticFocus = false;
+        }
+
+        // WP8.1 pushes focus to the first focusable control when panels change, popping the keyboard;
+        // only a real tap on the box (FocusState.Pointer) may keep it.
+        private void SearchBox_GotFocus(object sender, RoutedEventArgs e)
+        {
+            bool allowed = SearchBox.FocusState == FocusState.Pointer || _allowSearchBoxProgrammaticFocus;
+            _allowSearchBoxProgrammaticFocus = false;
+            if (!allowed) this.Focus(FocusState.Programmatic);
         }
 
         private void SearchIcon_Tapped(object sender, Windows.UI.Xaml.Input.TappedRoutedEventArgs e)

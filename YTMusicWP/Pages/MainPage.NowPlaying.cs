@@ -144,7 +144,7 @@ namespace YTMusicWP
         {
             if (currentTrack != null)
             {
-                NowPlayingDownloadBtn.Visibility = currentTrack.VideoId.StartsWith("LOCAL:") ? Visibility.Collapsed : Visibility.Visible;
+                NowPlayingDownloadMp3Btn.Visibility = IsDownloadableTrack(currentTrack) ? Visibility.Visible : Visibility.Collapsed;
             }
 
             NowPlayingMenuDialog.Visibility = Visibility.Visible;
@@ -177,10 +177,10 @@ namespace YTMusicWP
             RestoreSearchBoxFocus();
         }
 
-        private async void MenuDownloadNowPlaying_Click(object sender, RoutedEventArgs e)
+        private async void MenuDownloadMp3NowPlaying_Click(object sender, RoutedEventArgs e)
         {
             CloseNowPlayingMenu_Click(null, null);
-            if (currentTrack != null) await DownloadTrackAsync(currentTrack);
+            if (currentTrack != null) await DownloadTrackAsMp3Async(currentTrack);
         }
 
         private void NowPlayingPivot_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -233,6 +233,7 @@ namespace YTMusicWP
             // Show delete button only for downloaded (LOCAL:) tracks
             BottomSheetDeleteBtn.Visibility = (track.VideoId != null && track.VideoId.StartsWith("LOCAL:"))
                 ? Visibility.Visible : Visibility.Collapsed;
+            BottomSheetDownloadMp3Btn.Visibility = IsDownloadableTrack(track) ? Visibility.Visible : Visibility.Collapsed;
 
             CustomBottomSheet.Visibility = Visibility.Visible;
             BottomSheetSlideUpStoryboard.Begin();
@@ -308,6 +309,12 @@ namespace YTMusicWP
             }
         }
 
+        private async void BottomSheetDownloadMp3_Click(object sender, RoutedEventArgs e)
+        {
+            CloseBottomSheet_Click(null, null);
+            if (_bottomSheetTrack != null) await DownloadTrackAsMp3Async(_bottomSheetTrack);
+        }
+
         private async void BottomSheetDelete_Click(object sender, RoutedEventArgs e)
         {
             CloseBottomSheet_Click(null, null);
@@ -343,7 +350,7 @@ namespace YTMusicWP
                     await Task.Delay(600);
                 }
 
-                StorageFile file = await ApplicationData.Current.LocalFolder.GetFileAsync(track.VideoId.Substring(6));
+                StorageFile file = await GetLocalTrackFileAsync(track.VideoId);
                 try
                 {
                     await file.DeleteAsync();
@@ -373,7 +380,6 @@ namespace YTMusicWP
                 {
                     historyTracks.Remove(hist);
                     var ignoredHist = SaveHistoryAsyncTask();
-                    RefreshHomeHistorySections();
                 }
 
                 foreach (var playlist in userPlaylists)

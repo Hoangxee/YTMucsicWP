@@ -87,15 +87,6 @@ namespace YTMusicWP
         private ObservableCollection<YouTubeTrack> historyTracks = new ObservableCollection<YouTubeTrack>();
         private ObservableCollection<string> searchSuggestions = new ObservableCollection<string>();
 
-        private ObservableCollection<YouTubeTrack> historyQuickGridTracks = new ObservableCollection<YouTubeTrack>();
-        private ObservableCollection<YouTubeTrack> homeHistoryCarouselTracks = new ObservableCollection<YouTubeTrack>();
-        private ObservableCollection<YouTubeTrack> popTracks = new ObservableCollection<YouTubeTrack>();
-        private ObservableCollection<YouTubeTrack> lofiTracks = new ObservableCollection<YouTubeTrack>();
-        private ObservableCollection<YouTubeTrack> workoutTracks = new ObservableCollection<YouTubeTrack>();
-        private ObservableCollection<YouTubeTrack> genre5Tracks = new ObservableCollection<YouTubeTrack>();
-        private ObservableCollection<YouTubeTrack> genre6Tracks = new ObservableCollection<YouTubeTrack>();
-        private ObservableCollection<YouTubeTrack> genre7Tracks = new ObservableCollection<YouTubeTrack>();
-        private ObservableCollection<YouTubeTrack> genre8Tracks = new ObservableCollection<YouTubeTrack>();
         private ObservableCollection<YouTubeTrack> podcastTracks = new ObservableCollection<YouTubeTrack>();
         private ObservableCollection<YouTubeTrack> audiobookTracks = new ObservableCollection<YouTubeTrack>();
 
@@ -128,7 +119,6 @@ namespace YTMusicWP
         private bool _isLoadingMoreSearch = false;
         // [OPT-Q4] Tách biệt query search và query home — tránh overwrite nhau
         private string _currentSearchQuery = "";
-        private string _currentHomeQuery = "";
 
 
         private DispatcherTimer _sleepTimer;
@@ -155,16 +145,7 @@ namespace YTMusicWP
 
             SearchSongList.ItemsSource = searchResults;
 
-            HomeTrendingCarousel.ItemsSource = homeTracks;
-            HomeHistoryCarousel.ItemsSource = homeHistoryCarouselTracks;
-            HomeQuickGrid.ItemsSource = historyQuickGridTracks;
-            HomePopCarousel.ItemsSource = popTracks;
-            HomeLofiCarousel.ItemsSource = lofiTracks;
-            HomeWorkoutCarousel.ItemsSource = workoutTracks;
-            HomeGenre5Carousel.ItemsSource = genre5Tracks;
-            HomeGenre6Carousel.ItemsSource = genre6Tracks;
-            HomeGenre7Carousel.ItemsSource = genre7Tracks;
-            HomeGenre8Carousel.ItemsSource = genre8Tracks;
+            HomeTrendingList.ItemsSource = homeTracks;
 
             FavoriteSongList.ItemsSource = favoriteTracks;
             DownloadedSongList.ItemsSource = downloadedTracks;
@@ -191,15 +172,6 @@ namespace YTMusicWP
 
             Application.Current.Suspending += Current_Suspending;
             Application.Current.Resuming += Current_Resuming;
-        }
-
-        private void HomeQuickGrid_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            var wrapGrid = HomeQuickGrid.ItemsPanelRoot as ItemsWrapGrid;
-            if (wrapGrid != null && e.NewSize.Width > 0)
-            {
-                wrapGrid.ItemWidth = Math.Max(0, e.NewSize.Width / 2);
-            }
         }
 
         private void UpdateGreetingText()
@@ -318,6 +290,9 @@ namespace YTMusicWP
             await Task.WhenAll(LoadFavoritesAsync(), LoadHistoryAsync(), LoadPlaylistsAsync(),
                 LoadYouTubePlaylistsCacheAsync(), LoadYouTubeAlbumsCacheAsync(), LoadYouTubeSubscriptionsCacheAsync());
             await LoadDownloadsAsync(); // depends on filesystem scan, runs after
+#if DEBUG
+            var ignoredDebugDownload = RunDebugDownloadTriggerAsync();
+#endif
 
             SyncBackgroundPlayer();
             RestorePlaybackUiState();
@@ -332,7 +307,7 @@ namespace YTMusicWP
             {
                 if (homeTracks.Count == 0) 
                 {
-                    await LoadHomeRecommendations();
+                    await LoadHomeTrendingAsync();
                 }
 
                 // Upgrade old 16:9 thumbnails in favorites to genuine 1:1 YTM square album art

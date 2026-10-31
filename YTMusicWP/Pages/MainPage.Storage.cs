@@ -41,6 +41,41 @@ namespace YTMusicWP
             return (bytes / (1024.0 * 1024.0 * 1024.0)).ToString("F2") + " GB";
         }
 
+        private const string DownloadFolderName = "YTMusicWP";
+        private const string MusicLibraryUrlPrefix = "musiclib:";
+
+        private static Task<StorageFolder> GetMusicDownloadFolderAsync()
+        {
+            return KnownFolders.MusicLibrary.CreateFolderAsync(DownloadFolderName, CreationCollisionOption.OpenIfExists).AsTask();
+        }
+
+        private static string MusicLibraryTrackId(string fileName)
+        {
+            return "LOCAL:" + MusicLibraryUrlPrefix + DownloadFolderName + "/" + fileName;
+        }
+
+        // LOCAL:musiclib:YTMusicWP/<file> = Music library download; LOCAL:<file> = legacy app-folder download.
+        private static string GetLocalTrackUrl(string videoId)
+        {
+            string rel = videoId.Substring(6);
+            return rel.StartsWith(MusicLibraryUrlPrefix) ? rel : "ms-appdata:///local/" + rel;
+        }
+
+        private static async Task<StorageFile> GetLocalTrackFileAsync(string videoId)
+        {
+            string rel = videoId.Substring(6);
+            if (!rel.StartsWith(MusicLibraryUrlPrefix))
+                return await ApplicationData.Current.LocalFolder.GetFileAsync(rel);
+            StorageFolder folder = await GetMusicDownloadFolderAsync();
+            return await folder.GetFileAsync(rel.Substring(MusicLibraryUrlPrefix.Length + DownloadFolderName.Length + 1));
+        }
+
+        private static bool IsDownloadedAudioFile(string fileName)
+        {
+            string nameLower = fileName.ToLowerInvariant();
+            return (nameLower.EndsWith(".m4a") || nameLower.EndsWith(".mp3")) && !nameLower.StartsWith("temp_play_");
+        }
+
         public async Task<AppStorageStats> CalculateStorageStatsAsync()
         {
             var stats = new AppStorageStats();
@@ -57,7 +92,7 @@ namespace YTMusicWP
                     ulong size = props.Size;
                     string nameLower = file.Name.ToLowerInvariant();
 
-                    if (nameLower.EndsWith(".m4a") && !nameLower.StartsWith("temp_play_"))
+                    if (IsDownloadedAudioFile(file.Name))
                     {
                         stats.DownloadedBytes += size;
                         stats.DownloadedCount++;
@@ -82,6 +117,19 @@ namespace YTMusicWP
                         stats.DataCacheBytes += size;
                         stats.DataCacheCount++;
                     }
+                }
+            }
+            catch { }
+
+            try
+            {
+                StorageFolder musicFolder = await GetMusicDownloadFolderAsync();
+                foreach (var file in await musicFolder.GetFilesAsync())
+                {
+                    if (!IsDownloadedAudioFile(file.Name)) continue;
+                    var props = await file.GetBasicPropertiesAsync();
+                    stats.DownloadedBytes += props.Size;
+                    stats.DownloadedCount++;
                 }
             }
             catch { }
@@ -272,7 +320,6 @@ namespace YTMusicWP
                         ThumbnailUrl = GetSquareThumbnail(item["ThumbnailUrl"]?.ToString())
                     });
                 }
-                RefreshHomeHistorySections();
             }
             catch { }
         }
@@ -322,47 +369,65 @@ namespace YTMusicWP
 
         private async Task LoadDownloadsAsync()
         {
+            // FIX #4: Smart diff — chỉ thêm/xóa item thay đổi, tránh UI flicker
+            var currentIds = new HashSet<string>();
+            // [OPT] Build existing-ID set once → O(1) lookup instead of O(n) .Any()
+            var existingIds = new HashSet<string>();
+            foreach (var t in downloadedTracks) existingIds.Add(t.VideoId);
+            bool scanned = false;
+
             try
             {
-                var files = await ApplicationData.Current.LocalFolder.GetFilesAsync();
-
-                // FIX #4: Smart diff — chỉ thêm/xóa item thay đổi, tránh UI flicker
-                var currentFileNames = new HashSet<string>();
-                // [OPT] Build existing-ID set once → O(1) lookup instead of O(n) .Any()
-                var existingIds = new HashSet<string>();
-                foreach (var t in downloadedTracks) existingIds.Add(t.VideoId);
-
-                foreach (var file in files)
+                StorageFolder musicFolder = await GetMusicDownloadFolderAsync();
+                foreach (var file in await musicFolder.GetFilesAsync())
                 {
-                    if (file.Name.EndsWith(".m4a") && !file.Name.StartsWith("temp_play_"))
-                    {
-                        currentFileNames.Add(file.Name);
-                        string localId = "LOCAL:" + file.Name;
-                        if (!existingIds.Contains(localId))
-                        {
-                            downloadedTracks.Add(new YouTubeTrack
-                            {
-                                VideoId = localId,
-                                Title = file.Name.Replace(".m4a", ""),
-                                ChannelName = "Offline Track",
-                                ThumbnailUrl = "ms-appx:///Assets/Square71x71Logo.scale-240.png"
-                            });
-                        }
-                    }
-                }
+                    if (!IsDownloadedAudioFile(file.Name)) continue;
+                    string id = MusicLibraryTrackId(file.Name);
+                    currentIds.Add(id);
+                    if (existingIds.Contains(id)) continue;
 
-                // Xóa các track đã bị xóa khỏi ổ đĩa (chỉ xử lý LOCAL: tracks)
-                for (int i = downloadedTracks.Count - 1; i >= 0; i--)
-                {
-                    if (!downloadedTracks[i].VideoId.StartsWith("LOCAL:")) continue;
-                    string fileName = downloadedTracks[i].VideoId.Substring(6); // "LOCAL:".Length = 6
-                    if (!currentFileNames.Contains(fileName))
+                    string artist = "";
+                    try { artist = (await file.Properties.GetMusicPropertiesAsync()).Artist; } catch { }
+                    downloadedTracks.Add(new YouTubeTrack
                     {
-                        downloadedTracks.RemoveAt(i);
-                    }
+                        VideoId = id,
+                        Title = System.IO.Path.GetFileNameWithoutExtension(file.Name),
+                        ChannelName = string.IsNullOrEmpty(artist) ? "Offline Track" : artist,
+                        ThumbnailUrl = "ms-appx:///Assets/Square71x71Logo.scale-240.png"
+                    });
                 }
+                scanned = true;
             }
             catch { }
+
+            // Downloads made before the Music library switch stay in LocalFolder.
+            try
+            {
+                foreach (var file in await ApplicationData.Current.LocalFolder.GetFilesAsync())
+                {
+                    if (!IsDownloadedAudioFile(file.Name)) continue;
+                    string id = "LOCAL:" + file.Name;
+                    currentIds.Add(id);
+                    if (existingIds.Contains(id)) continue;
+                    downloadedTracks.Add(new YouTubeTrack
+                    {
+                        VideoId = id,
+                        Title = System.IO.Path.GetFileNameWithoutExtension(file.Name),
+                        ChannelName = "Offline Track",
+                        ThumbnailUrl = "ms-appx:///Assets/Square71x71Logo.scale-240.png"
+                    });
+                }
+            }
+            catch { scanned = false; }
+
+            // Xóa các track đã bị xóa khỏi ổ đĩa — only when both scans succeeded, so a transient
+            // Music library error doesn't wipe the list.
+            if (!scanned) return;
+            for (int i = downloadedTracks.Count - 1; i >= 0; i--)
+            {
+                if (downloadedTracks[i].VideoId.StartsWith("LOCAL:") && !currentIds.Contains(downloadedTracks[i].VideoId))
+                    downloadedTracks.RemoveAt(i);
+            }
         }
 
         private async Task LoadPlaylistsAsync()
